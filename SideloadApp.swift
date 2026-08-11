@@ -3,9 +3,8 @@
 //  SwiftStore
 //
 //  CHANGELOG:
-//  - Version 3.0.0: Persistencia de datos arreglada, Shake to Undo,
-//    Multi-selección de fuentes, Toggles de estado, Blob mejorado,
-//    y sección Acerca de restaurada.
+//  - Version 3.1.0: Corrección de compilación (removeAll), Menú en vivo de Estatus de Actualización,
+//    Gestor de descargas en cola (previene corrupción), Toggle para fondo animado.
 //
 
 import SwiftUI
@@ -31,18 +30,14 @@ extension Notification.Name {
 }
 
 struct ShakeDetector: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> ShakeViewController {
-        return ShakeViewController()
-    }
+    func makeUIViewController(context: Context) -> ShakeViewController { return ShakeViewController() }
     func updateUIViewController(_ uiViewController: ShakeViewController, context: Context) {}
 }
 
 class ShakeViewController: UIViewController {
     override func becomeFirstResponder() -> Bool { return true }
     override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
-        if motion == .motionShake {
-            NotificationCenter.default.post(name: .shakeToUndo, object: nil)
-        }
+        if motion == .motionShake { NotificationCenter.default.post(name: .shakeToUndo, object: nil) }
     }
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -53,9 +48,7 @@ class ShakeViewController: UIViewController {
 extension View {
     func onShake(perform action: @escaping () -> Void) -> some View {
         self.background(ShakeDetector())
-            .onReceive(NotificationCenter.default.publisher(for: .shakeToUndo)) { _ in
-                action()
-            }
+            .onReceive(NotificationCenter.default.publisher(for: .shakeToUndo)) { _ in action() }
     }
     
     @ViewBuilder
@@ -63,9 +56,7 @@ extension View {
         if #available(iOS 16.0, *) {
             self.scrollContentBackground(.hidden)
         } else {
-            self.onAppear {
-                UITableView.appearance().backgroundColor = .clear
-            }
+            self.onAppear { UITableView.appearance().backgroundColor = .clear }
         }
     }
 }
@@ -76,7 +67,7 @@ struct AltStoreSource: Identifiable, Codable, Hashable {
     var name: String
     var url: String
     var iconURL: String?
-    var isActive: Bool = true // Switch para activar/desactivar
+    var isActive: Bool = true
 }
 
 struct AltStoreApp: Identifiable, Codable, Hashable {
@@ -89,12 +80,8 @@ struct AltStoreApp: Identifiable, Codable, Hashable {
     let localizedDescription: String?
     let iconURL: String?
     
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(bundleIdentifier)
-    }
-    static func ==(lhs: AltStoreApp, rhs: AltStoreApp) -> Bool {
-        return lhs.bundleIdentifier == rhs.bundleIdentifier
-    }
+    func hash(into hasher: inout Hasher) { hasher.combine(bundleIdentifier) }
+    static func ==(lhs: AltStoreApp, rhs: AltStoreApp) -> Bool { return lhs.bundleIdentifier == rhs.bundleIdentifier }
 }
 
 struct AltStoreFeed: Codable {
@@ -105,32 +92,37 @@ struct AltStoreFeed: Codable {
 
 // MARK: - View Model & Download Manager
 class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
-    @Published var sources: [AltStoreSource] = [] {
-        didSet { saveSources() }
-    }
+    @Published var sources: [AltStoreSource] = [] { didSet { saveSources() } }
     @Published var apps: [AltStoreApp] = []
     
-    // Configuración persistente
+    // Configuraciones
     @AppStorage("asyncRepoSync") var asyncRepoSync: Bool = true
     @AppStorage("autoUpdateApps") var autoUpdateApps: Bool = false
     @AppStorage("wifiOnly") var wifiOnly: Bool = true
     @AppStorage("amoledPitchBlack") var amoledPitchBlack: Bool = true
     @AppStorage("downloadFolder") var downloadFolder: String = "Documentos"
+    @AppStorage("enableAnimatedBackground") var enableAnimatedBackground: Bool = true
 
+    // Estado de interfaz
     @Published var searchText: String = ""
-    @Published var downloadProgress: [String: Double] = [:]
-    @Published var isDownloading: [String: Bool] = [:]
+    @Published var downloadedFiles: [URL] = []
     @Published var downloadedApps: Set<String> = []
     
-    // Gestor de Archivos
-    @Published var downloadedFiles: [URL] = []
+    // Estatus de Actualización de Fuentes
+    @Published var isUpdatingRepos: Bool = false
+    @Published var repoUpdateStatus: String = ""
     
-    // Variables de Deshacer (Undo)
-    @Published var recentlyDeletedSources: [AltStoreSource] = []
-    @Published var showUndoAlert: Bool = false
-    
+    // Cola de Descargas
+    @Published var downloadProgress: [String: Double] = [:]
+    @Published var isDownloading: [String: Bool] = [:]
+    @Published var downloadQueue: [AltStoreApp] = []
+    private var currentDownload: AltStoreApp?
     private var downloadTasks: [String: URLSessionDownloadTask] = [:]
     private var taskAppMap: [Int: AltStoreApp] = [:]
+    
+    // Variables de Undo
+    @Published var recentlyDeletedSources: [AltStoreSource] = []
+    @Published var showUndoAlert: Bool = false
     
     override init() {
         super.init()
@@ -140,7 +132,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         refreshFilesList()
     }
     
-    // MARK: Persistencia de Fuentes
+    // MARK: Persistencia
     func saveSources() {
         if let encoded = try? JSONEncoder().encode(sources) {
             UserDefaults.standard.set(encoded, forKey: "savedSources")
@@ -156,34 +148,62 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         }
     }
     
-    // MARK: Funciones de Red
+    // MARK: Funciones de Red (Con Estatus en Vivo)
     func addSource(url: String) {
         guard let validURL = URL(string: url), validURL.scheme != nil else { return }
+        DispatchQueue.main.async {
+            self.isUpdatingRepos = true
+            self.repoUpdateStatus = "Descargando JSON del nuevo repositorio..."
+        }
+        
         URLSession.shared.dataTask(with: validURL) { [weak self] data, _, error in
-            guard let self = self, let data = data, error == nil else { return }
-            if let feed = try? JSONDecoder().decode(AltStoreFeed.self, from: data) {
+            guard let self = self else { return }
+            
+            if let data = data, error == nil, let feed = try? JSONDecoder().decode(AltStoreFeed.self, from: data) {
                 DispatchQueue.main.async {
                     let sourceName = feed.name ?? "Repositorio Nuevo"
+                    self.repoUpdateStatus = "Instalando Repo: \(sourceName)"
                     let newSource = AltStoreSource(name: sourceName, url: url, iconURL: feed.iconURL, isActive: true)
+                    
                     if !self.sources.contains(where: { $0.url == url }) {
                         self.sources.append(newSource)
                         self.fetchApps()
+                    } else {
+                        self.finishUpdatingRepos(message: "Repositorio ya existente.")
                     }
                 }
+            } else {
+                DispatchQueue.main.async { self.finishUpdatingRepos(message: "Error al añadir repositorio.") }
             }
         }.resume()
     }
     
     func fetchApps() {
-        apps.removeAll()
         let activeSources = sources.filter { $0.isActive }
+        if activeSources.isEmpty {
+            apps.removeAll()
+            return
+        }
+        
+        DispatchQueue.main.async {
+            self.isUpdatingRepos = true
+            self.repoUpdateStatus = "Sincronizando \(activeSources.count) fuentes..."
+            self.apps.removeAll()
+        }
+        
+        let group = DispatchGroup()
         
         for source in activeSources {
             guard let url = URL(string: source.url) else { continue }
-            URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
-                guard let self = self, let data = data, error == nil else { return }
+            group.enter()
+            
+            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+                defer { group.leave() }
+                guard let self = self, let data = data else { return }
+                
                 if let feed = try? JSONDecoder().decode(AltStoreFeed.self, from: data) {
                     DispatchQueue.main.async {
+                        self.repoUpdateStatus = "Procesando apps de: \(feed.name ?? "Desconocido")"
                         for newApp in feed.apps {
                             if !self.apps.contains(where: { $0.bundleIdentifier == newApp.bundleIdentifier }) {
                                 self.apps.append(newApp)
@@ -192,6 +212,17 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
                     }
                 }
             }.resume()
+        }
+        
+        group.notify(queue: .main) {
+            self.finishUpdatingRepos(message: "Sincronización Completada")
+        }
+    }
+    
+    private func finishUpdatingRepos(message: String) {
+        self.repoUpdateStatus = message
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            self.isUpdatingRepos = false
         }
     }
     
@@ -217,18 +248,14 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     
     func refreshFilesList() {
         if let files = try? FileManager.default.contentsOfDirectory(at: downloadsDirectory, includingPropertiesForKeys: [.fileSizeKey]) {
-            DispatchQueue.main.async {
-                self.downloadedFiles = files.filter { $0.pathExtension == "ipa" }
-            }
+            DispatchQueue.main.async { self.downloadedFiles = files.filter { $0.pathExtension == "ipa" } }
         }
     }
     
     func checkDownloadedFiles() {
         var existing: Set<String> = []
         if let files = try? FileManager.default.contentsOfDirectory(atPath: downloadsDirectory.path) {
-            for file in files where file.hasSuffix(".ipa") {
-                existing.insert(file.replacingOccurrences(of: ".ipa", with: ""))
-            }
+            for file in files where file.hasSuffix(".ipa") { existing.insert(file.replacingOccurrences(of: ".ipa", with: "")) }
         }
         DispatchQueue.main.async { self.downloadedApps = existing }
     }
@@ -240,25 +267,49 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         refreshFilesList()
     }
     
-    // MARK: Descargas (Delegates)
+    // MARK: Sistema de Cola de Descargas
     func startDownload(app: AltStoreApp) {
-        if downloadedApps.contains(app.bundleIdentifier) { return }
-        guard let url = URL(string: app.downloadURL) else { return }
+        if downloadedApps.contains(app.bundleIdentifier) || downloadQueue.contains(app) || currentDownload == app { return }
+        downloadQueue.append(app)
+        processDownloadQueue()
+    }
+    
+    func processDownloadQueue() {
+        guard currentDownload == nil, let nextApp = downloadQueue.first else { return }
+        currentDownload = nextApp
+        downloadQueue.removeFirst()
+        
+        guard let url = URL(string: nextApp.downloadURL) else {
+            finishDownloadProcessing(for: nextApp.bundleIdentifier)
+            return
+        }
+        
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: OperationQueue.main)
         let task = session.downloadTask(with: url)
-        
-        downloadTasks[app.bundleIdentifier] = task
-        taskAppMap[task.taskIdentifier] = app
-        isDownloading[app.bundleIdentifier] = true
-        downloadProgress[app.bundleIdentifier] = 0.01
+        downloadTasks[nextApp.bundleIdentifier] = task
+        taskAppMap[task.taskIdentifier] = nextApp
+        isDownloading[nextApp.bundleIdentifier] = true
+        downloadProgress[nextApp.bundleIdentifier] = 0.01
         task.resume()
     }
     
     func cancelDownload(app: AltStoreApp) {
-        downloadTasks[app.bundleIdentifier]?.cancel()
-        downloadTasks[app.bundleIdentifier] = nil
-        isDownloading[app.bundleIdentifier] = false
-        downloadProgress[app.bundleIdentifier] = 0.0
+        if let index = downloadQueue.firstIndex(of: app) {
+            downloadQueue.remove(at: index) // Eliminar de la cola si no ha empezado
+        } else if currentDownload == app {
+            downloadTasks[app.bundleIdentifier]?.cancel()
+            finishDownloadProcessing(for: app.bundleIdentifier)
+        }
+    }
+    
+    private func finishDownloadProcessing(for identifier: String) {
+        isDownloading[identifier] = false
+        downloadProgress[identifier] = 0.0
+        downloadTasks[identifier] = nil
+        if currentDownload?.bundleIdentifier == identifier {
+            currentDownload = nil
+            processDownloadQueue() // Siguiente en la cola
+        }
     }
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
@@ -268,10 +319,9 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         try? FileManager.default.moveItem(at: location, to: dest)
         
         DispatchQueue.main.async {
-            self.isDownloading[app.bundleIdentifier] = false
-            self.downloadProgress[app.bundleIdentifier] = 1.0
             self.downloadedApps.insert(app.bundleIdentifier)
             self.refreshFilesList()
+            self.finishDownloadProcessing(for: app.bundleIdentifier)
         }
     }
     
@@ -282,33 +332,35 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     }
 }
 
-// MARK: - Authentic Organic Blob Background
+// MARK: - Animated Blob Background
 struct BlobBackgroundView: View {
+    @AppStorage("enableAnimatedBackground") var enableAnimatedBackground: Bool = true
     @State private var phase: Double = 0
     
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             
-            // Forma orgánica rotando y deformándose
-            RoundedRectangle(cornerRadius: 150, style: .continuous)
-                .fill(LinearGradient(colors: [Color(hex: "5E35B1"), Color(hex: "283593")], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .frame(width: 320, height: 350)
-                .rotationEffect(.degrees(phase * 40))
-                .scaleEffect(1 + CGFloat(sin(phase)) * 0.1)
-                .blur(radius: 60)
-                .offset(x: sin(phase * 1.5) * 80, y: cos(phase * 1.2) * 80)
-            
-            RoundedRectangle(cornerRadius: 120, style: .continuous)
-                .fill(LinearGradient(colors: [Color(hex: "0288D1"), .clear], startPoint: .bottom, endPoint: .top))
-                .frame(width: 380, height: 300)
-                .rotationEffect(.degrees(-phase * 30))
-                .blur(radius: 80)
-                .offset(x: cos(phase * 0.8) * -60, y: sin(phase * 1.1) * 100)
+            if enableAnimatedBackground {
+                RoundedRectangle(cornerRadius: 150, style: .continuous)
+                    .fill(LinearGradient(colors: [Color(hex: "5E35B1"), Color(hex: "283593")], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 320, height: 350)
+                    .rotationEffect(.degrees(phase * 40))
+                    .scaleEffect(1 + CGFloat(sin(phase)) * 0.1)
+                    .blur(radius: 60)
+                    .offset(x: sin(phase * 1.5) * 80, y: cos(phase * 1.2) * 80)
+                
+                RoundedRectangle(cornerRadius: 120, style: .continuous)
+                    .fill(LinearGradient(colors: [Color(hex: "0288D1"), .clear], startPoint: .bottom, endPoint: .top))
+                    .frame(width: 380, height: 300)
+                    .rotationEffect(.degrees(-phase * 30))
+                    .blur(radius: 80)
+                    .offset(x: cos(phase * 0.8) * -60, y: sin(phase * 1.1) * 100)
+            }
         }
         .onAppear {
-            withAnimation(.linear(duration: 15).repeatForever(autoreverses: true)) {
-                phase = .pi * 2
+            if enableAnimatedBackground {
+                withAnimation(.linear(duration: 15).repeatForever(autoreverses: true)) { phase = .pi * 2 }
             }
         }
     }
@@ -320,52 +372,88 @@ struct MainTabView: View {
     @State private var showingShakeUndo = false
     
     var body: some View {
-        TabView {
-            NavigationView { StoreView() }
-                .navigationViewStyle(.stack)
-                .environmentObject(viewModel)
-                .tabItem { Label("Tienda", systemImage: "square.stack.3d.down.right.fill") }
+        ZStack(alignment: .bottom) {
+            TabView {
+                NavigationView { StoreView() }
+                    .navigationViewStyle(.stack)
+                    .environmentObject(viewModel)
+                    .tabItem { Label("Tienda", systemImage: "square.stack.3d.down.right.fill") }
+                
+                NavigationView { SourcesView() }
+                    .navigationViewStyle(.stack)
+                    .environmentObject(viewModel)
+                    .tabItem { Label("Fuentes", systemImage: "link") }
+                
+                NavigationView { FilesView() }
+                    .navigationViewStyle(.stack)
+                    .environmentObject(viewModel)
+                    .tabItem { Label("Archivos", systemImage: "folder.fill") }
+                
+                NavigationView { SettingsView() }
+                    .navigationViewStyle(.stack)
+                    .environmentObject(viewModel)
+                    .tabItem { Label("Ajustes", systemImage: "gearshape.fill") }
+            }
+            .accentColor(.cyan)
+            .onAppear {
+                let appearance = UITabBarAppearance()
+                appearance.configureWithOpaqueBackground()
+                appearance.backgroundColor = .black
+                UITabBar.appearance().standardAppearance = appearance
+                if #available(iOS 15.0, *) { UITabBar.appearance().scrollEdgeAppearance = appearance }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .shakeToUndo)) { _ in
+                if !viewModel.recentlyDeletedSources.isEmpty { showingShakeUndo = true }
+            }
+            .alert(isPresented: $showingShakeUndo) {
+                Alert(
+                    title: Text("Deshacer acción"),
+                    message: Text("¿Deseas restaurar las fuentes eliminadas recientemente?"),
+                    primaryButton: .default(Text("Deshacer")) { viewModel.undoDelete() },
+                    secondaryButton: .cancel()
+                )
+            }
             
-            NavigationView { SourcesView() }
-                .navigationViewStyle(.stack)
-                .environmentObject(viewModel)
-                .tabItem { Label("Fuentes", systemImage: "link") }
-            
-            NavigationView { FilesView() }
-                .navigationViewStyle(.stack)
-                .environmentObject(viewModel)
-                .tabItem { Label("Archivos", systemImage: "folder.fill") }
-            
-            NavigationView { SettingsView() }
-                .navigationViewStyle(.stack)
-                .environmentObject(viewModel)
-                .tabItem { Label("Ajustes", systemImage: "gearshape.fill") }
-        }
-        .accentColor(.cyan)
-        .onAppear {
-            let appearance = UITabBarAppearance()
-            appearance.configureWithOpaqueBackground()
-            appearance.backgroundColor = .black
-            UITabBar.appearance().standardAppearance = appearance
-            if #available(iOS 15.0, *) {
-                UITabBar.appearance().scrollEdgeAppearance = appearance
+            // Panel Flotante de Estatus de Actualización
+            if viewModel.isUpdatingRepos {
+                LiveStatusOverlay(status: viewModel.repoUpdateStatus)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(100)
+                    .padding(.bottom, 60) // Evita tapar el TabBar
             }
         }
-        // Shake detector en toda la app
-        .onReceive(NotificationCenter.default.publisher(for: .shakeToUndo)) { _ in
-            if !viewModel.recentlyDeletedSources.isEmpty {
-                showingShakeUndo = true
+    }
+}
+
+// Menú Flotante Visual (Live Status)
+struct LiveStatusOverlay: View {
+    var status: String
+    var body: some View {
+        HStack(spacing: 15) {
+            ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .cyan))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Estatus de la Actualización")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                Text(status)
+                    .foregroundColor(.white)
+                    .font(.subheadline)
+                    .bold()
+                    .lineLimit(1)
             }
+            Spacer()
         }
-        // Alerta de Shake
-        .alert(isPresented: $showingShakeUndo) {
-            Alert(
-                title: Text("Deshacer acción"),
-                message: Text("¿Deseas restaurar las fuentes eliminadas recientemente?"),
-                primaryButton: .default(Text("Deshacer")) { viewModel.undoDelete() },
-                secondaryButton: .cancel()
-            )
-        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(hex: "1C1C1E").opacity(0.95))
+                .shadow(color: .cyan.opacity(0.2), radius: 15, y: 5)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+        )
+        .padding(.horizontal)
     }
 }
 
@@ -388,10 +476,7 @@ struct StoreView: View {
                         TextField("Buscar aplicaciones...", text: $viewModel.searchText)
                             .foregroundColor(.white)
                     }
-                    .padding(12)
-                    .background(Color.white.opacity(0.08))
-                    .cornerRadius(12)
-                    .padding(.horizontal)
+                    .padding(12).background(Color.white.opacity(0.08)).cornerRadius(12).padding(.horizontal)
                     
                     if filteredApps.isEmpty {
                         VStack(spacing: 10) {
@@ -401,21 +486,17 @@ struct StoreView: View {
                     } else {
                         LazyVStack(spacing: 12) {
                             ForEach(filteredApps) { app in
-                                NavigationLink(destination: AppDetailView(app: app)) {
-                                    AppCardView(app: app)
-                                }.buttonStyle(PlainButtonStyle())
+                                NavigationLink(destination: AppDetailView(app: app)) { AppCardView(app: app) }.buttonStyle(PlainButtonStyle())
                             }
                         }.padding(.bottom, 20)
                     }
                 }
             }
-        }
-        .navigationTitle("SwiftStore")
+        }.navigationTitle("SwiftStore")
     }
 }
 
-// MARK: - Components (Card & Detail & Indicator)
-// (Sin cambios drásticos, manteniendo el estilo Liquid Glass y Descargas)
+// MARK: - Components (Card & Detail)
 struct AppCardView: View {
     let app: AltStoreApp
     var body: some View {
@@ -458,8 +539,7 @@ struct AppDetailView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Descripción").font(.headline).foregroundColor(.white)
                         Text(app.localizedDescription ?? "No hay descripción disponible.").foregroundColor(.gray).font(.body)
-                    }
-                    .padding().background(Color.white.opacity(0.05)).cornerRadius(16).padding(.horizontal)
+                    }.padding().background(Color.white.opacity(0.05)).cornerRadius(16).padding(.horizontal)
                 }.padding(.vertical)
             }
         }
@@ -474,14 +554,18 @@ struct AppDetailView: View {
     }
 }
 
+// MARK: - Download Indicator (Soporta Queue)
 struct DownloadIndicator: View {
     @EnvironmentObject var viewModel: AppViewModel
     let app: AltStoreApp
     var isLarge: Bool = false
+    
     var body: some View {
         let isDownloading = viewModel.isDownloading[app.bundleIdentifier] ?? false
+        let isQueued = viewModel.downloadQueue.contains(app)
         let progress = viewModel.downloadProgress[app.bundleIdentifier] ?? 0.0
         let isDownloaded = viewModel.downloadedApps.contains(app.bundleIdentifier)
+        
         let size: CGFloat = isLarge ? 50 : 32
         let fontSize: CGFloat = isLarge ? 30 : 28
         
@@ -494,6 +578,10 @@ struct DownloadIndicator: View {
                         Rectangle().fill(Color.cyan).frame(width: size/3.5, height: size/3.5).cornerRadius(2)
                     }
                 }
+            } else if isQueued {
+                Button(action: { viewModel.cancelDownload(app: app) }) {
+                    Image(systemName: "clock.fill").font(.system(size: fontSize)).foregroundColor(.orange)
+                }
             } else if isDownloaded {
                 Image(systemName: "checkmark.circle.fill").font(.system(size: fontSize)).foregroundColor(.green)
             } else {
@@ -505,7 +593,7 @@ struct DownloadIndicator: View {
     }
 }
 
-// MARK: - Sources View (Multi-Select & Undo Alert)
+// MARK: - Sources View (FIXED COMPILATION ERROR)
 struct SourcesView: View {
     @EnvironmentObject var viewModel: AppViewModel
     @State private var newRepoURL: String = ""
@@ -547,31 +635,20 @@ struct SourcesView: View {
                             if editMode == .inactive {
                                 Toggle("", isOn: $source.isActive)
                                     .labelsHidden()
-                                    .onChange(of: source.isActive) { _ in
-                                        viewModel.fetchApps()
-                                        viewModel.saveSources()
-                                    }
+                                    .onChange(of: source.isActive) { _ in viewModel.fetchApps() }
                             }
                         }
                         .listRowBackground(Color.white.opacity(0.05))
-                        // Long Press para Multi-selección
-                        .onLongPressGesture {
-                            if viewModel.sources.count >= 2 {
-                                withAnimation { editMode = .active }
-                            }
-                        }
+                        .onLongPressGesture { if viewModel.sources.count >= 2 { withAnimation { editMode = .active } } }
                     }
                     .onDelete { indexSet in
-                        if let index = indexSet.first {
-                            viewModel.deleteSource(viewModel.sources[index])
-                        }
+                        if let index = indexSet.first { viewModel.deleteSource(viewModel.sources[index]) }
                     }
                 }
                 .environment(\.editMode, $editMode)
                 .hideListBackground()
             }
             
-            // Panel inferior de multi-selección
             if editMode == .active {
                 VStack {
                     Spacer()
@@ -582,26 +659,22 @@ struct SourcesView: View {
                             viewModel.sources.removeAll { selection.contains($0.id) }
                             viewModel.fetchApps()
                             viewModel.showUndoAlert = true
-                            selection.clear()
+                            selection.removeAll() // FIXED
                             editMode = .inactive
                         }) {
                             VStack { Image(systemName: "trash"); Text("Eliminar") }
                         }.disabled(selection.isEmpty)
                         
                         Button(action: {
-                            for i in viewModel.sources.indices {
-                                if selection.contains(viewModel.sources[i].id) {
-                                    viewModel.sources[i].isActive.toggle()
-                                }
-                            }
+                            for i in viewModel.sources.indices { if selection.contains(viewModel.sources[i].id) { viewModel.sources[i].isActive.toggle() } }
                             viewModel.fetchApps()
-                            selection.clear()
+                            selection.removeAll() // FIXED
                             editMode = .inactive
                         }) {
                             VStack { Image(systemName: "switch.2"); Text("Alternar") }
                         }.disabled(selection.isEmpty)
                         
-                        Button(action: { selection.clear(); editMode = .inactive }) {
+                        Button(action: { selection.removeAll(); editMode = .inactive }) { // FIXED
                             VStack { Image(systemName: "xmark.circle"); Text("Cancelar") }
                         }
                     }
@@ -612,18 +685,8 @@ struct SourcesView: View {
         .navigationTitle("Fuentes")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { viewModel.fetchApps() }) {
-                    Image(systemName: "arrow.triangle.2.circlepath").foregroundColor(.cyan)
-                }
+                Button(action: { viewModel.fetchApps() }) { Image(systemName: "arrow.triangle.2.circlepath").foregroundColor(.cyan) }
             }
-        }
-        .alert(isPresented: $viewModel.showUndoAlert) {
-            Alert(
-                title: Text("Fuente Eliminada"),
-                message: Text("¿Deseas deshacer los cambios?"),
-                primaryButton: .default(Text("Deshacer")) { viewModel.undoDelete() },
-                secondaryButton: .cancel(Text("OK"))
-            )
         }
     }
 }
@@ -651,12 +714,9 @@ struct FilesView: View {
                                     Text(formatBytes(fileSize)).font(.caption).foregroundColor(.gray)
                                 }
                             }
-                        }
-                        .padding(.vertical, 4).listRowBackground(Color.white.opacity(0.05))
+                        }.padding(.vertical, 4).listRowBackground(Color.white.opacity(0.05))
                     }.onDelete { indexSet in
-                        indexSet.forEach { index in
-                            try? FileManager.default.removeItem(at: viewModel.downloadedFiles[index])
-                        }
+                        indexSet.forEach { index in try? FileManager.default.removeItem(at: viewModel.downloadedFiles[index]) }
                         viewModel.refreshFilesList()
                         viewModel.checkDownloadedFiles()
                     }
@@ -675,13 +735,13 @@ struct FilesView: View {
     }
 }
 
-// MARK: - Settings View (Acerca de restaurado)
+// MARK: - Settings View
 struct SettingsView: View {
     @EnvironmentObject var viewModel: AppViewModel
     @State private var randomImageName: String = ""
     @State private var showEasterEgg = false
     
-    let renders = ["3D_Render_1", "3D_Render_2", "3D_Render_3"] // Tus nombres de archivo
+    let renders = ["3D_Render_1", "3D_Render_2", "3D_Render_3"]
     let folders = ["Documentos", "Caché"]
     
     var body: some View {
@@ -692,7 +752,6 @@ struct SettingsView: View {
                 Section(header: Text("Sincronización").foregroundColor(.cyan)) {
                     Toggle("Async Repo Sync", isOn: $viewModel.asyncRepoSync)
                     Toggle("Actualizar apps automáticamente", isOn: $viewModel.autoUpdateApps)
-                    Toggle("Descargar solo con Wi-Fi", isOn: $viewModel.wifiOnly)
                 }.listRowBackground(Color.white.opacity(0.08))
                 
                 Section(header: Text("Archivos").foregroundColor(.cyan)) {
@@ -703,19 +762,15 @@ struct SettingsView: View {
                 
                 Section(header: Text("Apariencia").foregroundColor(.cyan)) {
                     Toggle("Modo AMOLED (Pitch Black)", isOn: $viewModel.amoledPitchBlack)
+                    Toggle("Fondo Animado (Burbujas)", isOn: $viewModel.enableAnimatedBackground)
                 }.listRowBackground(Color.white.opacity(0.08))
                 
                 Section(header: Text("Acerca de").foregroundColor(.cyan)) {
                     VStack(alignment: .center, spacing: 10) {
-                        // Render aleatorio restaurado
                         Image(randomImageName.isEmpty ? "default_render" : randomImageName)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(height: 120)
-                            .cornerRadius(15)
+                            .resizable().aspectRatio(contentMode: .fit).frame(height: 120).cornerRadius(15)
                             .onAppear { randomImageName = renders.randomElement() ?? "" }
-                        
-                        Text("SwiftStore v3.0.0").font(.headline).foregroundColor(.white)
+                        Text("SwiftStore v3.1.0").font(.headline).foregroundColor(.white)
                     }.frame(maxWidth: .infinity).padding(.vertical, 10)
                     
                     Button(action: { showEasterEgg.toggle() }) {
@@ -726,16 +781,11 @@ struct SettingsView: View {
                         }
                     }
                 }.listRowBackground(Color.white.opacity(0.08))
-            }
-            .hideListBackground()
+            }.hideListBackground()
         }
         .navigationTitle("Configuración")
         .alert(isPresented: $showEasterEgg) {
-            Alert(
-                title: Text("🤖✨ ¡Hola!"),
-                message: Text("Fui asistido por Gemini en la creación de esta increíble tienda. ¡Gracias por usar SwiftStore!"),
-                dismissButton: .default(Text("¡Genial!"))
-            )
+            Alert(title: Text("🤖✨ ¡Hola!"), message: Text("Fui asistido por Gemini en la creación de esta increíble tienda. ¡Gracias por usar SwiftStore!"), dismissButton: .default(Text("¡Genial!")))
         }
     }
 }
@@ -746,10 +796,8 @@ struct LiquidGlassCard<Content: View>: View {
     init(@ViewBuilder content: () -> Content) { self.content = content() }
     var body: some View {
         content.padding()
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white.opacity(0.06)).background(.ultraThinMaterial.opacity(0.3))
-                    .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(LinearGradient(gradient: Gradient(colors: [Color.white.opacity(0.3), Color.white.opacity(0.05)]), startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5))
-            ).shadow(color: Color.black.opacity(0.6), radius: 10, x: 0, y: 5)
+            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white.opacity(0.06)).background(.ultraThinMaterial.opacity(0.3)).overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(LinearGradient(gradient: Gradient(colors: [Color.white.opacity(0.3), Color.white.opacity(0.05)]), startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)))
+            .shadow(color: Color.black.opacity(0.6), radius: 10, x: 0, y: 5)
     }
 }
 
