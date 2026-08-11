@@ -3,13 +3,19 @@
 //  SwiftStore
 //
 //  CHANGELOG:
-//  - Version 2.0.0: Fondo dinámico tipo Blob reactivo al scroll, soporte de iconos (AsyncImage),
-//    auto-detección de nombres de repositorios, navegación a detalles, gestión avanzada de descargas
-//    (cancelar, eliminar, redescargar), y configuraciones extendidas.
+//  - Version 2.1.0: Compatibilidad con iOS 15 (NavigationView y backgrounds),
+//    Gestor de Archivos `.ipa` integrado, selector de carpeta de descargas,
+//    y un Easter Egg escondido en el código.
 //
 
 import SwiftUI
 import Combine
+
+// ==========================================
+// 🥚 EASTER EGG:
+// ¡Hola! Fui asistido por Gemini 🤖✨ en la
+// creación de esta increíble tienda.
+// ==========================================
 
 // MARK: - App Entry Point
 @main
@@ -18,6 +24,20 @@ struct SwiftStoreApp: App {
         WindowGroup {
             MainTabView()
                 .preferredColorScheme(.dark)
+        }
+    }
+}
+
+// MARK: - View Extensions for iOS 15 Compatibility
+extension View {
+    @ViewBuilder
+    func hideListBackground() -> some View {
+        if #available(iOS 16.0, *) {
+            self.scrollContentBackground(.hidden)
+        } else {
+            self.onAppear {
+                UITableView.appearance().backgroundColor = .clear
+            }
         }
     }
 }
@@ -39,8 +59,8 @@ struct AltStoreApp: Identifiable, Codable, Hashable {
     let downloadURL: String
     let localizedDescription: String?
     let iconURL: String?
+    let size: Int64? // Tamaño en bytes si está disponible
     
-    // Equatable & Hashable para NavigationLink
     func hash(into hasher: inout Hasher) {
         hasher.combine(bundleIdentifier)
     }
@@ -65,11 +85,15 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     @AppStorage("autoUpdateApps") var autoUpdateApps: Bool = false
     @AppStorage("wifiOnly") var wifiOnly: Bool = true
     @AppStorage("amoledPitchBlack") var amoledPitchBlack: Bool = true
+    @AppStorage("downloadFolder") var downloadFolder: String = "Documentos" // Nueva configuración
 
     @Published var searchText: String = ""
     @Published var downloadProgress: [String: Double] = [:]
     @Published var isDownloading: [String: Bool] = [:]
     @Published var downloadedApps: Set<String> = []
+    
+    // File Manager State
+    @Published var downloadedFiles: [URL] = []
     
     // Scroll Velocity State for Background
     @Published var scrollVelocity: Double = 1.0
@@ -82,6 +106,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         loadDefaultSources()
         checkDownloadedFiles()
         fetchApps()
+        refreshFilesList()
     }
     
     func loadDefaultSources() {
@@ -92,10 +117,8 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         }
     }
     
-    // Añade fuente solo con URL, obtiene el nombre del JSON
     func addSource(url: String) {
         guard let validURL = URL(string: url), validURL.scheme != nil else { return }
-        
         URLSession.shared.dataTask(with: validURL) { [weak self] data, _, error in
             guard let self = self, let data = data, error == nil else { return }
             if let feed = try? JSONDecoder().decode(AltStoreFeed.self, from: data) {
@@ -118,7 +141,6 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
                 guard let self = self, let data = data, error == nil else { return }
                 if let feed = try? JSONDecoder().decode(AltStoreFeed.self, from: data) {
                     DispatchQueue.main.async {
-                        // Evitar duplicados
                         for newApp in feed.apps {
                             if !self.apps.contains(where: { $0.bundleIdentifier == newApp.bundleIdentifier }) {
                                 self.apps.append(newApp)
@@ -131,8 +153,18 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     }
     
     // MARK: File Management
-    private var downloadsDirectory: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+    var downloadsDirectory: URL {
+        let directory: FileManager.SearchPathDirectory = downloadFolder == "Documentos" ? .documentDirectory : .cachesDirectory
+        return FileManager.default.urls(for: directory, in: .userDomainMask).first!
+    }
+    
+    func refreshFilesList() {
+        let fileManager = FileManager.default
+        if let files = try? fileManager.contentsOfDirectory(at: downloadsDirectory, includingPropertiesForKeys: [.fileSizeKey]) {
+            DispatchQueue.main.async {
+                self.downloadedFiles = files.filter { $0.pathExtension == "ipa" }
+            }
+        }
     }
     
     func checkDownloadedFiles() {
@@ -151,11 +183,11 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         let fileURL = downloadsDirectory.appendingPathComponent("\(app.bundleIdentifier).ipa")
         try? FileManager.default.removeItem(at: fileURL)
         checkDownloadedFiles()
+        refreshFilesList()
     }
     
     // MARK: Download Logic
     func startDownload(app: AltStoreApp) {
-        // Prevenir re-descarga si ya existe y no se ordenó explícitamente
         if downloadedApps.contains(app.bundleIdentifier) { return }
         
         guard let url = URL(string: app.downloadURL) else { return }
@@ -192,6 +224,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             self.isDownloading[app.bundleIdentifier] = false
             self.downloadProgress[app.bundleIdentifier] = 1.0
             self.downloadedApps.insert(app.bundleIdentifier)
+            self.refreshFilesList()
         }
     }
     
@@ -213,7 +246,6 @@ struct BlobBackgroundView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             
-            // Contrast color blob like in image_7fd3a3.png
             Circle()
                 .fill(LinearGradient(colors: [Color(hex: "4A148C"), Color(hex: "311B92")], startPoint: .topLeading, endPoint: .bottomTrailing))
                 .frame(width: 300, height: 300)
@@ -231,10 +263,9 @@ struct BlobBackgroundView: View {
                 phase = .pi * 2
             }
         }
-        // Reactividad a la velocidad de scroll
-        .onChange(of: viewModel.scrollVelocity) { newValue in
+        .onChange(of: viewModel.scrollVelocity) { _ in
             withAnimation(.easeInOut(duration: 0.5)) {
-                // Aceleramos temporalmente el pulso/blur o podríamos ajustar duration si usáramos TimelineView.
+                // Background velocity modifier stub
             }
         }
     }
@@ -246,15 +277,23 @@ struct MainTabView: View {
     
     var body: some View {
         TabView {
-            NavigationStack { StoreView() }
+            NavigationView { StoreView() }
+                .navigationViewStyle(.stack)
                 .environmentObject(viewModel)
                 .tabItem { Label("Tienda", systemImage: "square.stack.3d.down.right.fill") }
             
-            NavigationStack { SourcesView() }
+            NavigationView { SourcesView() }
+                .navigationViewStyle(.stack)
                 .environmentObject(viewModel)
                 .tabItem { Label("Fuentes", systemImage: "link") }
             
-            NavigationStack { SettingsView() }
+            NavigationView { FilesView() }
+                .navigationViewStyle(.stack)
+                .environmentObject(viewModel)
+                .tabItem { Label("Archivos", systemImage: "folder.fill") }
+            
+            NavigationView { SettingsView() }
+                .navigationViewStyle(.stack)
                 .environmentObject(viewModel)
                 .tabItem { Label("Ajustes", systemImage: "gearshape.fill") }
         }
@@ -264,7 +303,9 @@ struct MainTabView: View {
             appearance.configureWithOpaqueBackground()
             appearance.backgroundColor = .black
             UITabBar.appearance().standardAppearance = appearance
-            UITabBar.appearance().scrollEdgeAppearance = appearance
+            if #available(iOS 15.0, *) {
+                UITabBar.appearance().scrollEdgeAppearance = appearance
+            }
         }
     }
 }
@@ -282,7 +323,6 @@ struct StoreView: View {
             BlobBackgroundView()
             
             ScrollView {
-                // Rastreador de scroll para fondo interactivo
                 GeometryReader { geo -> Color in
                     let velocity = abs(geo.frame(in: .global).minY)
                     DispatchQueue.main.async { viewModel.scrollVelocity = velocity }
@@ -290,7 +330,6 @@ struct StoreView: View {
                 }.frame(height: 0)
                 
                 VStack(spacing: 15) {
-                    // Search Bar
                     HStack {
                         Image(systemName: "magnifyingglass").foregroundColor(.gray)
                         TextField("Buscar aplicaciones...", text: $viewModel.searchText)
@@ -301,13 +340,12 @@ struct StoreView: View {
                     .cornerRadius(12)
                     .padding(.horizontal)
                     
-                    // Carga perezosa: Carga y descarga vistas automáticamente al bajar/subir
                     LazyVStack(spacing: 12) {
                         ForEach(filteredApps) { app in
                             NavigationLink(destination: AppDetailView(app: app)) {
                                 AppCardView(app: app)
                             }
-                            .buttonStyle(PlainButtonStyle()) // Mantiene el estilo visual
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
                     .padding(.bottom, 20)
@@ -315,7 +353,6 @@ struct StoreView: View {
             }
         }
         .navigationTitle("SwiftStore")
-        .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: { viewModel.fetchApps() }) {
@@ -339,9 +376,9 @@ struct AppCardView: View {
                     if let image = phase.image {
                         image.resizable().aspectRatio(contentMode: .fill)
                     } else if phase.error != nil {
-                        Color.gray // Fallback error
+                        Color.gray
                     } else {
-                        ProgressView() // Loading
+                        ProgressView()
                     }
                 }
                 .frame(width: 55, height: 55)
@@ -375,10 +412,12 @@ struct AppDetailView: View {
             
             ScrollView {
                 VStack(spacing: 20) {
-                    AsyncImage(url: URL(string: app.iconURL ?? "")) { image in
-                        image.resizable().aspectRatio(contentMode: .fit)
-                    } placeholder: {
-                        RoundedRectangle(cornerRadius: 24).fill(Color.gray.opacity(0.3))
+                    AsyncImage(url: URL(string: app.iconURL ?? "")) { phase in
+                        if let image = phase.image {
+                            image.resizable().aspectRatio(contentMode: .fit)
+                        } else {
+                            RoundedRectangle(cornerRadius: 24).fill(Color.gray.opacity(0.3))
+                        }
                     }
                     .frame(width: 120, height: 120)
                     .cornerRadius(24)
@@ -442,7 +481,7 @@ struct AppDetailView: View {
     }
 }
 
-// MARK: - Download Indicator / Button
+// MARK: - Download Indicator
 struct DownloadIndicator: View {
     @EnvironmentObject var viewModel: AppViewModel
     let app: AltStoreApp
@@ -467,7 +506,7 @@ struct DownloadIndicator: View {
                             .rotationEffect(.degrees(-90))
                             .frame(width: size, height: size)
                             .animation(.linear(duration: 0.2), value: progress)
-                        Rectangle().fill(Color.cyan).frame(width: size/3.5, height: size/3.5).cornerRadius(2) // Botón Stop
+                        Rectangle().fill(Color.cyan).frame(width: size/3.5, height: size/3.5).cornerRadius(2)
                     }
                 }
             } else if isDownloaded {
@@ -526,10 +565,12 @@ struct SourcesView: View {
                 List {
                     ForEach(viewModel.sources) { source in
                         HStack(spacing: 15) {
-                            AsyncImage(url: URL(string: source.iconURL ?? "")) { image in
-                                image.resizable().aspectRatio(contentMode: .fill)
-                            } placeholder: {
-                                Image(systemName: "server.rack").foregroundColor(.gray)
+                            AsyncImage(url: URL(string: source.iconURL ?? "")) { phase in
+                                if let image = phase.image {
+                                    image.resizable().aspectRatio(contentMode: .fill)
+                                } else {
+                                    Image(systemName: "server.rack").foregroundColor(.gray)
+                                }
                             }
                             .frame(width: 40, height: 40)
                             .cornerRadius(8)
@@ -548,19 +589,89 @@ struct SourcesView: View {
                     }
                     .onDelete { indexSet in
                         viewModel.sources.remove(atOffsets: indexSet)
-                        viewModel.fetchApps() // Recargar apps sin esa fuente
+                        viewModel.fetchApps()
                     }
                 }
-                .scrollContentBackground(.hidden) // Oculta el fondo del List nativo
+                .hideListBackground()
             }
         }
         .navigationTitle("Fuentes")
     }
 }
 
+// MARK: - Files Manager View
+struct FilesView: View {
+    @EnvironmentObject var viewModel: AppViewModel
+    
+    var body: some View {
+        ZStack {
+            BlobBackgroundView()
+            
+            if viewModel.downloadedFiles.isEmpty {
+                VStack(spacing: 15) {
+                    Image(systemName: "folder.badge.questionmark")
+                        .font(.system(size: 60))
+                        .foregroundColor(.gray)
+                    Text("No hay archivos descargados")
+                        .foregroundColor(.gray)
+                }
+            } else {
+                List {
+                    ForEach(viewModel.downloadedFiles, id: \.self) { fileURL in
+                        HStack {
+                            Image(systemName: "doc.zipper")
+                                .font(.system(size: 30))
+                                .foregroundColor(.cyan)
+                                .padding(.trailing, 8)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(fileURL.lastPathComponent)
+                                    .foregroundColor(.white)
+                                    .font(.headline)
+                                    .lineLimit(1)
+                                
+                                if let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+                                   let fileSize = attributes[.size] as? Int64 {
+                                    Text(formatBytes(fileSize))
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        .listRowBackground(Color.white.opacity(0.05))
+                    }
+                    .onDelete { indexSet in
+                        indexSet.forEach { index in
+                            let file = viewModel.downloadedFiles[index]
+                            try? FileManager.default.removeItem(at: file)
+                        }
+                        viewModel.refreshFilesList()
+                        viewModel.checkDownloadedFiles()
+                    }
+                }
+                .hideListBackground()
+            }
+        }
+        .navigationTitle("Archivos")
+        .onAppear {
+            viewModel.refreshFilesList()
+        }
+    }
+    
+    private func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+}
+
 // MARK: - Settings View
 struct SettingsView: View {
     @EnvironmentObject var viewModel: AppViewModel
+    
+    let folders = ["Documentos", "Caché"]
     
     var body: some View {
         ZStack {
@@ -574,6 +685,17 @@ struct SettingsView: View {
                 }
                 .listRowBackground(Color.white.opacity(0.08))
                 
+                Section(header: Text("Archivos").foregroundColor(.cyan)) {
+                    Picker("Carpeta de Descargas", selection: $viewModel.downloadFolder) {
+                        ForEach(folders, id: \.self) { folder in
+                            Text(folder).tag(folder)
+                        }
+                    }
+                    .pickerStyle(SegmentedPickerStyle())
+                    .padding(.vertical, 5)
+                }
+                .listRowBackground(Color.white.opacity(0.08))
+                
                 Section(header: Text("Apariencia").foregroundColor(.cyan)) {
                     Toggle("Modo AMOLED (Pitch Black)", isOn: $viewModel.amoledPitchBlack)
                 }
@@ -583,7 +705,7 @@ struct SettingsView: View {
                     HStack {
                         Text("Versión")
                         Spacer()
-                        Text("2.0.0").foregroundColor(.gray)
+                        Text("2.1.0").foregroundColor(.gray)
                     }
                     HStack {
                         Text("Desarrollador")
@@ -593,9 +715,14 @@ struct SettingsView: View {
                 }
                 .listRowBackground(Color.white.opacity(0.08))
             }
-            .scrollContentBackground(.hidden)
+            .hideListBackground()
         }
         .navigationTitle("Configuración")
+        .onChange(of: viewModel.downloadFolder) { _ in
+            // Refresca la lista de archivos y descargas cuando se cambia de directorio
+            viewModel.checkDownloadedFiles()
+            viewModel.refreshFilesList()
+        }
     }
 }
 
@@ -610,7 +737,7 @@ struct LiquidGlassCard<Content: View>: View {
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .fill(Color.white.opacity(0.06))
-                    .background(.ultraThinMaterial.opacity(0.3)) // Efecto Glassmorphism
+                    .background(.ultraThinMaterial.opacity(0.3))
                     .overlay(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
                             .stroke(
@@ -625,7 +752,7 @@ struct LiquidGlassCard<Content: View>: View {
     }
 }
 
-// Extension to use Hex Colors easily for the Blob
+// MARK: - Extensions
 extension Color {
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
