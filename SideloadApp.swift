@@ -3,8 +3,9 @@
 //  SwiftStore
 //
 //  CHANGELOG:
-//  - Version 3.1.0: Corrección de compilación (removeAll), Menú en vivo de Estatus de Actualización,
-//    Gestor de descargas en cola (previene corrupción), Toggle para fondo animado.
+//  - Version 3.1.1: Menú de créditos clásico con formas aleatorias (AnimatedRender3D),
+//    Manejo de errores detallado al añadir/sincronizar repositorios.
+//  - EASTER EGG: ¡Gracias por usar la asistencia de Gemini en este proyecto! 🤖✨
 //
 
 import SwiftUI
@@ -148,7 +149,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         }
     }
     
-    // MARK: Funciones de Red (Con Estatus en Vivo)
+    // MARK: Funciones de Red (Con Estatus y Errores Detallados)
     func addSource(url: String) {
         guard let validURL = URL(string: url), validURL.scheme != nil else { return }
         DispatchQueue.main.async {
@@ -156,10 +157,21 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             self.repoUpdateStatus = "Descargando JSON del nuevo repositorio..."
         }
         
-        URLSession.shared.dataTask(with: validURL) { [weak self] data, _, error in
+        URLSession.shared.dataTask(with: validURL) { [weak self] data, response, error in
             guard let self = self else { return }
             
-            if let data = data, error == nil, let feed = try? JSONDecoder().decode(AltStoreFeed.self, from: data) {
+            if let error = error {
+                DispatchQueue.main.async { self.finishUpdatingRepos(message: "Fallo de red: \(error.localizedDescription)", delay: 3.5) }
+                return
+            }
+            
+            guard let data = data else {
+                DispatchQueue.main.async { self.finishUpdatingRepos(message: "Error: No se recibió información del servidor.", delay: 3.5) }
+                return
+            }
+            
+            do {
+                let feed = try JSONDecoder().decode(AltStoreFeed.self, from: data)
                 DispatchQueue.main.async {
                     let sourceName = feed.name ?? "Repositorio Nuevo"
                     self.repoUpdateStatus = "Instalando Repo: \(sourceName)"
@@ -169,11 +181,11 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
                         self.sources.append(newSource)
                         self.fetchApps()
                     } else {
-                        self.finishUpdatingRepos(message: "Repositorio ya existente.")
+                        self.finishUpdatingRepos(message: "Error: Este repositorio ya existe.")
                     }
                 }
-            } else {
-                DispatchQueue.main.async { self.finishUpdatingRepos(message: "Error al añadir repositorio.") }
+            } catch {
+                DispatchQueue.main.async { self.finishUpdatingRepos(message: "Error: El archivo JSON es inválido o no compatible.", delay: 3.5) }
             }
         }.resume()
     }
@@ -197,18 +209,28 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             guard let url = URL(string: source.url) else { continue }
             group.enter()
             
-            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
                 defer { group.leave() }
-                guard let self = self, let data = data else { return }
+                guard let self = self else { return }
                 
-                if let feed = try? JSONDecoder().decode(AltStoreFeed.self, from: data) {
-                    DispatchQueue.main.async {
-                        self.repoUpdateStatus = "Procesando apps de: \(feed.name ?? "Desconocido")"
-                        for newApp in feed.apps {
-                            if !self.apps.contains(where: { $0.bundleIdentifier == newApp.bundleIdentifier }) {
-                                self.apps.append(newApp)
+                if let error = error {
+                    DispatchQueue.main.async { self.repoUpdateStatus = "Error en \(source.name): \(error.localizedDescription)" }
+                    return
+                }
+                
+                if let data = data {
+                    do {
+                        let feed = try JSONDecoder().decode(AltStoreFeed.self, from: data)
+                        DispatchQueue.main.async {
+                            self.repoUpdateStatus = "Procesando apps de: \(feed.name ?? source.name)"
+                            for newApp in feed.apps {
+                                if !self.apps.contains(where: { $0.bundleIdentifier == newApp.bundleIdentifier }) {
+                                    self.apps.append(newApp)
+                                }
                             }
                         }
+                    } catch {
+                        DispatchQueue.main.async { self.repoUpdateStatus = "JSON corrupto en: \(source.name)" }
                     }
                 }
             }.resume()
@@ -219,9 +241,9 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         }
     }
     
-    private func finishUpdatingRepos(message: String) {
+    private func finishUpdatingRepos(message: String, delay: Double = 2.0) {
         self.repoUpdateStatus = message
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             self.isUpdatingRepos = false
         }
     }
@@ -295,7 +317,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     
     func cancelDownload(app: AltStoreApp) {
         if let index = downloadQueue.firstIndex(of: app) {
-            downloadQueue.remove(at: index) // Eliminar de la cola si no ha empezado
+            downloadQueue.remove(at: index)
         } else if currentDownload == app {
             downloadTasks[app.bundleIdentifier]?.cancel()
             finishDownloadProcessing(for: app.bundleIdentifier)
@@ -308,7 +330,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         downloadTasks[identifier] = nil
         if currentDownload?.bundleIdentifier == identifier {
             currentDownload = nil
-            processDownloadQueue() // Siguiente en la cola
+            processDownloadQueue()
         }
     }
     
@@ -414,12 +436,11 @@ struct MainTabView: View {
                 )
             }
             
-            // Panel Flotante de Estatus de Actualización
             if viewModel.isUpdatingRepos {
                 LiveStatusOverlay(status: viewModel.repoUpdateStatus)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(100)
-                    .padding(.bottom, 60) // Evita tapar el TabBar
+                    .padding(.bottom, 60)
             }
         }
     }
@@ -439,7 +460,8 @@ struct LiveStatusOverlay: View {
                     .foregroundColor(.white)
                     .font(.subheadline)
                     .bold()
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
         }
@@ -554,7 +576,7 @@ struct AppDetailView: View {
     }
 }
 
-// MARK: - Download Indicator (Soporta Queue)
+// MARK: - Download Indicator
 struct DownloadIndicator: View {
     @EnvironmentObject var viewModel: AppViewModel
     let app: AltStoreApp
@@ -593,7 +615,7 @@ struct DownloadIndicator: View {
     }
 }
 
-// MARK: - Sources View (FIXED COMPILATION ERROR)
+// MARK: - Sources View
 struct SourcesView: View {
     @EnvironmentObject var viewModel: AppViewModel
     @State private var newRepoURL: String = ""
@@ -659,7 +681,7 @@ struct SourcesView: View {
                             viewModel.sources.removeAll { selection.contains($0.id) }
                             viewModel.fetchApps()
                             viewModel.showUndoAlert = true
-                            selection.removeAll() // FIXED
+                            selection.removeAll()
                             editMode = .inactive
                         }) {
                             VStack { Image(systemName: "trash"); Text("Eliminar") }
@@ -668,13 +690,13 @@ struct SourcesView: View {
                         Button(action: {
                             for i in viewModel.sources.indices { if selection.contains(viewModel.sources[i].id) { viewModel.sources[i].isActive.toggle() } }
                             viewModel.fetchApps()
-                            selection.removeAll() // FIXED
+                            selection.removeAll()
                             editMode = .inactive
                         }) {
                             VStack { Image(systemName: "switch.2"); Text("Alternar") }
                         }.disabled(selection.isEmpty)
                         
-                        Button(action: { selection.removeAll(); editMode = .inactive }) { // FIXED
+                        Button(action: { selection.removeAll(); editMode = .inactive }) {
                             VStack { Image(systemName: "xmark.circle"); Text("Cancelar") }
                         }
                     }
@@ -739,7 +761,6 @@ struct FilesView: View {
 struct SettingsView: View {
     @EnvironmentObject var viewModel: AppViewModel
     @State private var randomImageName: String = ""
-    @State private var showEasterEgg = false
     
     let renders = ["3D_Render_1", "3D_Render_2", "3D_Render_3"]
     let folders = ["Documentos", "Caché"]
@@ -770,10 +791,10 @@ struct SettingsView: View {
                         Image(randomImageName.isEmpty ? "default_render" : randomImageName)
                             .resizable().aspectRatio(contentMode: .fit).frame(height: 120).cornerRadius(15)
                             .onAppear { randomImageName = renders.randomElement() ?? "" }
-                        Text("SwiftStore v3.1.0").font(.headline).foregroundColor(.white)
+                        Text("SwiftStore v3.1.1").font(.headline).foregroundColor(.white)
                     }.frame(maxWidth: .infinity).padding(.vertical, 10)
                     
-                    Button(action: { showEasterEgg.toggle() }) {
+                    NavigationLink(destination: CreditsView()) {
                         HStack {
                             Text("Desarrollador").foregroundColor(.primary)
                             Spacer()
@@ -784,8 +805,83 @@ struct SettingsView: View {
             }.hideListBackground()
         }
         .navigationTitle("Configuración")
-        .alert(isPresented: $showEasterEgg) {
-            Alert(title: Text("🤖✨ ¡Hola!"), message: Text("Fui asistido por Gemini en la creación de esta increíble tienda. ¡Gracias por usar SwiftStore!"), dismissButton: .default(Text("¡Genial!")))
+    }
+}
+
+// MARK: - Credits View & Animated Renders
+struct CreditsView: View {
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            VStack(spacing: 30) {
+                Text("Créditos")
+                    .font(.largeTitle)
+                    .bold()
+                    .foregroundColor(.white)
+                
+                AnimatedRender3D()
+                    .frame(width: 150, height: 150)
+                
+                LiquidGlassCard {
+                    VStack(spacing: 15) {
+                        Text("Desarrollado por")
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+                        
+                        Text("elmendezz")
+                            .font(.system(size: 24, weight: .bold, design: .monospaced))
+                            .foregroundColor(.cyan)
+                        
+                        Divider().background(Color.white.opacity(0.2))
+                        
+                        Text("Asistido por")
+                            .font(.subheadline)
+                            .foregroundColor(.gray)
+                        
+                        Text("Gemini")
+                            .font(.system(size: 22, weight: .semibold, design: .rounded))
+                            .foregroundColor(.purple)
+                    }
+                    .padding()
+                }
+                .padding(.horizontal, 30)
+            }
+        }
+    }
+}
+
+// Animación de Formas Aleatorias para la Vista de Créditos
+struct AnimatedRender3D: View {
+    @State private var phase: Double = 0
+    
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(LinearGradient(colors: [.cyan, .blue], startPoint: .top, endPoint: .bottom))
+                .frame(width: 100, height: 100)
+                .offset(x: sin(phase) * 30, y: cos(phase) * 30)
+                .shadow(color: .cyan.opacity(0.5), radius: 10)
+            
+            RoundedRectangle(cornerRadius: 25)
+                .fill(LinearGradient(colors: [.purple, .indigo], startPoint: .leading, endPoint: .trailing))
+                .frame(width: 90, height: 90)
+                .rotationEffect(.degrees(phase * 60))
+                .offset(x: cos(phase * 1.5) * -40, y: sin(phase * 0.8) * 40)
+                .shadow(color: .purple.opacity(0.5), radius: 10)
+            
+            Capsule()
+                .fill(LinearGradient(colors: [.orange, .pink], startPoint: .bottomLeading, endPoint: .topTrailing))
+                .frame(width: 120, height: 50)
+                .rotationEffect(.degrees(-phase * 45))
+                .offset(x: sin(phase * 1.2) * 20, y: cos(phase * 1.5) * -40)
+                .shadow(color: .pink.opacity(0.5), radius: 10)
+        }
+        .blur(radius: 2)
+        .onAppear {
+            withAnimation(.linear(duration: 8).repeatForever(autoreverses: true)) {
+                phase = .pi * 2
+            }
         }
     }
 }
