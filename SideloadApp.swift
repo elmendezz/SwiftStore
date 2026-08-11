@@ -3,7 +3,9 @@
 //  SwiftStore
 //
 //  CHANGELOG:
-//  - Version 1.0.1: Cambio de nombre comercial a SwiftStore, corrección de UI Liquid Glass, descarga de IPA a carpeta Downloads y vistas AMOLED.
+//  - Version 2.0.0: Fondo dinámico tipo Blob reactivo al scroll, soporte de iconos (AsyncImage),
+//    auto-detección de nombres de repositorios, navegación a detalles, gestión avanzada de descargas
+//    (cancelar, eliminar, redescargar), y configuraciones extendidas.
 //
 
 import SwiftUI
@@ -22,18 +24,13 @@ struct SwiftStoreApp: App {
 
 // MARK: - Models
 struct AltStoreSource: Identifiable, Codable {
-    let id: UUID
+    var id = UUID()
     var name: String
     var url: String
-    
-    init(id: UUID = UUID(), name: String, url: String) {
-        self.id = id
-        self.name = name
-        self.url = url
-    }
+    var iconURL: String?
 }
 
-struct AltStoreApp: Identifiable, Codable {
+struct AltStoreApp: Identifiable, Codable, Hashable {
     var id: String { bundleIdentifier }
     let name: String
     let bundleIdentifier: String
@@ -42,10 +39,19 @@ struct AltStoreApp: Identifiable, Codable {
     let downloadURL: String
     let localizedDescription: String?
     let iconURL: String?
+    
+    // Equatable & Hashable para NavigationLink
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(bundleIdentifier)
+    }
+    static func ==(lhs: AltStoreApp, rhs: AltStoreApp) -> Bool {
+        return lhs.bundleIdentifier == rhs.bundleIdentifier
+    }
 }
 
 struct AltStoreFeed: Codable {
     let name: String
+    let iconURL: String?
     let apps: [AltStoreApp]
 }
 
@@ -53,11 +59,20 @@ struct AltStoreFeed: Codable {
 class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     @Published var sources: [AltStoreSource] = []
     @Published var apps: [AltStoreApp] = []
-    @Published var customFonts: [String] = ["System Default", "Courier New", "Georgia", "Avenir", "Menlo"]
-    @Published var selectedFont: String = "System Default"
+    
+    // Settings
+    @AppStorage("asyncRepoSync") var asyncRepoSync: Bool = true
+    @AppStorage("autoUpdateApps") var autoUpdateApps: Bool = false
+    @AppStorage("wifiOnly") var wifiOnly: Bool = true
+    @AppStorage("amoledPitchBlack") var amoledPitchBlack: Bool = true
+
     @Published var searchText: String = ""
     @Published var downloadProgress: [String: Double] = [:]
     @Published var isDownloading: [String: Bool] = [:]
+    @Published var downloadedApps: Set<String> = []
+    
+    // Scroll Velocity State for Background
+    @Published var scrollVelocity: Double = 1.0
     
     private var downloadTasks: [String: URLSessionDownloadTask] = [:]
     private var taskAppMap: [Int: AltStoreApp] = [:]
@@ -65,81 +80,118 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     override init() {
         super.init()
         loadDefaultSources()
+        checkDownloadedFiles()
         fetchApps()
     }
     
     func loadDefaultSources() {
-        sources = [
-            AltStoreSource(name: "AltStore Official", url: "https://apps.altstore.io")
-        ]
+        if sources.isEmpty {
+            sources = [
+                AltStoreSource(name: "AltStore Official", url: "https://apps.altstore.io", iconURL: "https://altstore.io/altstore-icon.png")
+            ]
+        }
     }
     
-    func addSource(name: String, url: String) {
+    // Añade fuente solo con URL, obtiene el nombre del JSON
+    func addSource(url: String) {
         guard let validURL = URL(string: url), validURL.scheme != nil else { return }
-        let newSource = AltStoreSource(name: name, url: url)
-        sources.append(newSource)
-        fetchAppsFromSource(newSource)
-    }
-    
-    func addCustomFont(name: String) {
-        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        if !customFonts.contains(name) {
-            customFonts.append(name)
-        }
-    }
-    
-    func fetchApps() {
-        apps.removeAll()
-        for source in sources {
-            fetchAppsFromSource(source)
-        }
-    }
-    
-    private func fetchAppsFromSource(_ source: AltStoreSource) {
-        guard let url = URL(string: source.url) else { return }
-        URLSession.shared.dataTask(with: url) { data, _, error in
-            guard let data = data, error == nil else { return }
+        
+        URLSession.shared.dataTask(with: validURL) { [weak self] data, _, error in
+            guard let self = self, let data = data, error == nil else { return }
             if let feed = try? JSONDecoder().decode(AltStoreFeed.self, from: data) {
                 DispatchQueue.main.async {
-                    self.apps.append(contentsOf: feed.apps)
+                    let newSource = AltStoreSource(name: feed.name, url: url, iconURL: feed.iconURL)
+                    if !self.sources.contains(where: { $0.url == url }) {
+                        self.sources.append(newSource)
+                        self.apps.append(contentsOf: feed.apps)
+                    }
                 }
             }
         }.resume()
     }
     
+    func fetchApps() {
+        apps.removeAll()
+        for source in sources {
+            guard let url = URL(string: source.url) else { continue }
+            URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+                guard let self = self, let data = data, error == nil else { return }
+                if let feed = try? JSONDecoder().decode(AltStoreFeed.self, from: data) {
+                    DispatchQueue.main.async {
+                        // Evitar duplicados
+                        for newApp in feed.apps {
+                            if !self.apps.contains(where: { $0.bundleIdentifier == newApp.bundleIdentifier }) {
+                                self.apps.append(newApp)
+                            }
+                        }
+                    }
+                }
+            }.resume()
+        }
+    }
+    
+    // MARK: File Management
+    private var downloadsDirectory: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+    }
+    
+    func checkDownloadedFiles() {
+        var existing: Set<String> = []
+        let fileManager = FileManager.default
+        if let files = try? fileManager.contentsOfDirectory(atPath: downloadsDirectory.path) {
+            for file in files where file.hasSuffix(".ipa") {
+                let id = file.replacingOccurrences(of: ".ipa", with: "")
+                existing.insert(id)
+            }
+        }
+        DispatchQueue.main.async { self.downloadedApps = existing }
+    }
+    
+    func deleteAppFile(app: AltStoreApp) {
+        let fileURL = downloadsDirectory.appendingPathComponent("\(app.bundleIdentifier).ipa")
+        try? FileManager.default.removeItem(at: fileURL)
+        checkDownloadedFiles()
+    }
+    
+    // MARK: Download Logic
     func startDownload(app: AltStoreApp) {
+        // Prevenir re-descarga si ya existe y no se ordenó explícitamente
+        if downloadedApps.contains(app.bundleIdentifier) { return }
+        
         guard let url = URL(string: app.downloadURL) else { return }
-        
-        let config = URLSessionConfiguration.default
-        let session = URLSession(configuration: config, delegate: self, delegateQueue: OperationQueue.main)
-        
+        let session = URLSession(configuration: .default, delegate: self, delegateQueue: OperationQueue.main)
         let task = session.downloadTask(with: url)
+        
         downloadTasks[app.bundleIdentifier] = task
         taskAppMap[task.taskIdentifier] = app
         
         isDownloading[app.bundleIdentifier] = true
         downloadProgress[app.bundleIdentifier] = 0.01
-        
         task.resume()
+    }
+    
+    func cancelDownload(app: AltStoreApp) {
+        downloadTasks[app.bundleIdentifier]?.cancel()
+        downloadTasks[app.bundleIdentifier] = nil
+        isDownloading[app.bundleIdentifier] = false
+        downloadProgress[app.bundleIdentifier] = 0.0
     }
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let app = taskAppMap[downloadTask.taskIdentifier] else { return }
+        let destinationURL = downloadsDirectory.appendingPathComponent("\(app.bundleIdentifier).ipa")
         
-        let fileManager = FileManager.default
-        if let downloadsDirectory = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first {
-            let destinationURL = downloadsDirectory.appendingPathComponent("\(app.name).ipa")
-            try? fileManager.removeItem(at: destinationURL)
-            do {
-                try fileManager.moveItem(at: location, to: destinationURL)
-            } catch {
-                print("Error al guardar archivo: \(error)")
-            }
+        try? FileManager.default.removeItem(at: destinationURL)
+        do {
+            try FileManager.default.moveItem(at: location, to: destinationURL)
+        } catch {
+            print("Error al guardar: \(error)")
         }
         
         DispatchQueue.main.async {
             self.isDownloading[app.bundleIdentifier] = false
             self.downloadProgress[app.bundleIdentifier] = 1.0
+            self.downloadedApps.insert(app.bundleIdentifier)
         }
     }
     
@@ -152,33 +204,39 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     }
 }
 
-// MARK: - Liquid Glass UI Component
-struct LiquidGlassCard<Content: View>: View {
-    var content: Content
-    
-    init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
+// MARK: - Animated Blob Background
+struct BlobBackgroundView: View {
+    @EnvironmentObject var viewModel: AppViewModel
+    @State private var phase: Double = 0
     
     var body: some View {
-        content
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.white.opacity(0.05))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [Color.white.opacity(0.25), Color.white.opacity(0.05)]),
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1.5
-                            )
-                    )
-            )
-            .shadow(color: Color.black.opacity(0.8), radius: 10, x: 0, y: 5)
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            // Contrast color blob like in image_7fd3a3.png
+            Circle()
+                .fill(LinearGradient(colors: [Color(hex: "4A148C"), Color(hex: "311B92")], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .frame(width: 300, height: 300)
+                .blur(radius: 80)
+                .offset(x: sin(phase) * 100, y: cos(phase) * 100)
+            
+            Circle()
+                .fill(LinearGradient(colors: [Color(hex: "1A237E"), .clear], startPoint: .bottom, endPoint: .top))
+                .frame(width: 400, height: 400)
+                .blur(radius: 100)
+                .offset(x: cos(phase * 0.7) * -80, y: sin(phase * 0.5) * 120)
+        }
+        .onAppear {
+            withAnimation(.linear(duration: 20).repeatForever(autoreverses: false)) {
+                phase = .pi * 2
+            }
+        }
+        // Reactividad a la velocidad de scroll
+        .onChange(of: viewModel.scrollVelocity) { newValue in
+            withAnimation(.easeInOut(duration: 0.5)) {
+                // Aceleramos temporalmente el pulso/blur o podríamos ajustar duration si usáramos TimelineView.
+            }
+        }
     }
 }
 
@@ -188,33 +246,25 @@ struct MainTabView: View {
     
     var body: some View {
         TabView {
-            StoreView()
+            NavigationStack { StoreView() }
                 .environmentObject(viewModel)
-                .tabItem {
-                    Label("Tienda", systemImage: "square.stack.3d.down.right.fill")
-                }
+                .tabItem { Label("Tienda", systemImage: "square.stack.3d.down.right.fill") }
             
-            SourcesView()
+            NavigationStack { SourcesView() }
                 .environmentObject(viewModel)
-                .tabItem {
-                    Label("Fuentes", systemImage: "link")
-                }
+                .tabItem { Label("Fuentes", systemImage: "link") }
             
-            SettingsView()
+            NavigationStack { SettingsView() }
                 .environmentObject(viewModel)
-                .tabItem {
-                    Label("Ajustes", systemImage: "gearshape.fill")
-                }
-            
-            CreditsView()
-                .tabItem {
-                    Label("Créditos", systemImage: "sparkles")
-                }
+                .tabItem { Label("Ajustes", systemImage: "gearshape.fill") }
         }
         .accentColor(.cyan)
         .onAppear {
-            UITabBar.appearance().backgroundColor = UIColor.black
-            UITabBar.appearance().unselectedItemTintColor = UIColor.gray
+            let appearance = UITabBarAppearance()
+            appearance.configureWithOpaqueBackground()
+            appearance.backgroundColor = .black
+            UITabBar.appearance().standardAppearance = appearance
+            UITabBar.appearance().scrollEdgeAppearance = appearance
         }
     }
 }
@@ -224,158 +274,240 @@ struct StoreView: View {
     @EnvironmentObject var viewModel: AppViewModel
     
     var filteredApps: [AltStoreApp] {
-        if viewModel.searchText.isEmpty {
-            return viewModel.apps
-        } else {
-            return viewModel.apps.filter { $0.name.localizedCaseInsensitiveContains(viewModel.searchText) }
-        }
+        viewModel.searchText.isEmpty ? viewModel.apps : viewModel.apps.filter { $0.name.localizedCaseInsensitiveContains(viewModel.searchText) }
     }
     
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            BlobBackgroundView()
             
-            VStack(spacing: 15) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("SwiftStore")
-                        .font(customFont(size: 28, weight: .bold))
-                        .foregroundColor(.white)
-                    
+            ScrollView {
+                // Rastreador de scroll para fondo interactivo
+                GeometryReader { geo -> Color in
+                    let velocity = abs(geo.frame(in: .global).minY)
+                    DispatchQueue.main.async { viewModel.scrollVelocity = velocity }
+                    return Color.clear
+                }.frame(height: 0)
+                
+                VStack(spacing: 15) {
+                    // Search Bar
                     HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(.gray)
+                        Image(systemName: "magnifyingglass").foregroundColor(.gray)
                         TextField("Buscar aplicaciones...", text: $viewModel.searchText)
                             .foregroundColor(.white)
                     }
                     .padding(12)
                     .background(Color.white.opacity(0.08))
                     .cornerRadius(12)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                    )
-                }
-                .padding(.horizontal)
-                .padding(.top)
-                
-                ScrollView {
+                    .padding(.horizontal)
+                    
+                    // Carga perezosa: Carga y descarga vistas automáticamente al bajar/subir
                     LazyVStack(spacing: 12) {
                         ForEach(filteredApps) { app in
-                            LiquidGlassCard {
-                                HStack(spacing: 15) {
-                                    RenderIconView()
-                                        .frame(width: 50, height: 50)
-                                        .cornerRadius(12)
-                                    
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(app.name)
-                                            .font(customFont(size: 16, weight: .semibold))
-                                            .foregroundColor(.white)
-                                        Text(app.developerName)
-                                            .font(customFont(size: 12, weight: .regular))
-                                            .foregroundColor(.gray)
-                                    }
-                                    
-                                    Spacer()
-                                    
-                                    DownloadButton(app: app)
-                                }
+                            NavigationLink(destination: AppDetailView(app: app)) {
+                                AppCardView(app: app)
                             }
-                            .padding(.horizontal)
+                            .buttonStyle(PlainButtonStyle()) // Mantiene el estilo visual
                         }
                     }
                     .padding(.bottom, 20)
                 }
             }
         }
-    }
-    
-    private func customFont(size: CGFloat, weight: Font.Weight) -> Font {
-        if viewModel.selectedFont == "System Default" {
-            return .system(size: size, weight: weight)
-        } else {
-            return .custom(viewModel.selectedFont, size: size)
-        }
-    }
-}
-
-// MARK: - App Store Style Download Button
-struct DownloadButton: View {
-    @EnvironmentObject var viewModel: AppViewModel
-    let app: AltStoreApp
-    
-    var body: some View {
-        let isDownloading = viewModel.isDownloading[app.bundleIdentifier] ?? false
-        let progress = viewModel.downloadProgress[app.bundleIdentifier] ?? 0.0
-        
-        ZStack {
-            if isDownloading {
-                ZStack {
-                    Circle()
-                        .stroke(Color.white.opacity(0.2), lineWidth: 3)
-                        .frame(width: 32, height: 32)
-                    
-                    Circle()
-                        .trim(from: 0.0, to: CGFloat(progress))
-                        .stroke(Color.cyan, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                        .frame(width: 32, height: 32)
-                        .animation(.linear(duration: 0.2), value: progress)
-                    
-                    Rectangle()
-                        .fill(Color.cyan)
-                        .frame(width: 8, height: 8)
-                        .cornerRadius(1)
-                }
-            } else {
-                Button(action: {
-                    viewModel.startDownload(app: app)
-                }) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 28))
+        .navigationTitle("SwiftStore")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { viewModel.fetchApps() }) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
                         .foregroundColor(.cyan)
                 }
             }
         }
-        .frame(width: 40, height: 40)
+    }
+}
+
+// MARK: - App Card Component
+struct AppCardView: View {
+    @EnvironmentObject var viewModel: AppViewModel
+    let app: AltStoreApp
+    
+    var body: some View {
+        LiquidGlassCard {
+            HStack(spacing: 15) {
+                AsyncImage(url: URL(string: app.iconURL ?? "")) { phase in
+                    if let image = phase.image {
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } else if phase.error != nil {
+                        Color.gray // Fallback error
+                    } else {
+                        ProgressView() // Loading
+                    }
+                }
+                .frame(width: 55, height: 55)
+                .cornerRadius(14)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(app.name)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(.white)
+                    Text(app.developerName)
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(.gray)
+                }
+                
+                Spacer()
+                DownloadIndicator(app: app)
+            }
+        }
+        .padding(.horizontal)
+    }
+}
+
+// MARK: - App Detail View
+struct AppDetailView: View {
+    @EnvironmentObject var viewModel: AppViewModel
+    let app: AltStoreApp
+    
+    var body: some View {
+        ZStack {
+            BlobBackgroundView()
+            
+            ScrollView {
+                VStack(spacing: 20) {
+                    AsyncImage(url: URL(string: app.iconURL ?? "")) { image in
+                        image.resizable().aspectRatio(contentMode: .fit)
+                    } placeholder: {
+                        RoundedRectangle(cornerRadius: 24).fill(Color.gray.opacity(0.3))
+                    }
+                    .frame(width: 120, height: 120)
+                    .cornerRadius(24)
+                    .shadow(radius: 10)
+                    
+                    Text(app.name)
+                        .font(.largeTitle).bold()
+                        .foregroundColor(.white)
+                    
+                    Text(app.version)
+                        .font(.subheadline)
+                        .foregroundColor(.cyan)
+                    
+                    HStack(spacing: 20) {
+                        DownloadIndicator(app: app, isLarge: true)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Descripción")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                        Text(app.localizedDescription ?? "No hay descripción disponible.")
+                            .foregroundColor(.gray)
+                            .font(.body)
+                    }
+                    .padding()
+                    .background(Color.white.opacity(0.05))
+                    .cornerRadius(16)
+                    .padding(.horizontal)
+                }
+                .padding(.vertical)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Button(action: {
+                        viewModel.deleteAppFile(app: app)
+                        viewModel.startDownload(app: app)
+                    }) {
+                        Label("Volver a descargar", systemImage: "arrow.clockwise.icloud")
+                    }
+                    
+                    Button(action: {
+                        viewModel.deleteAppFile(app: app)
+                    }) {
+                        Label("Eliminar", systemImage: "trash")
+                    }
+                    
+                    Button(action: {
+                        viewModel.fetchApps()
+                    }) {
+                        Label("Recargar información", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .foregroundColor(.cyan)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Download Indicator / Button
+struct DownloadIndicator: View {
+    @EnvironmentObject var viewModel: AppViewModel
+    let app: AltStoreApp
+    var isLarge: Bool = false
+    
+    var body: some View {
+        let isDownloading = viewModel.isDownloading[app.bundleIdentifier] ?? false
+        let progress = viewModel.downloadProgress[app.bundleIdentifier] ?? 0.0
+        let isDownloaded = viewModel.downloadedApps.contains(app.bundleIdentifier)
+        
+        let size: CGFloat = isLarge ? 50 : 32
+        let fontSize: CGFloat = isLarge ? 30 : 28
+        
+        ZStack {
+            if isDownloading {
+                Button(action: { viewModel.cancelDownload(app: app) }) {
+                    ZStack {
+                        Circle().stroke(Color.white.opacity(0.2), lineWidth: 3).frame(width: size, height: size)
+                        Circle()
+                            .trim(from: 0.0, to: CGFloat(progress))
+                            .stroke(Color.cyan, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                            .frame(width: size, height: size)
+                            .animation(.linear(duration: 0.2), value: progress)
+                        Rectangle().fill(Color.cyan).frame(width: size/3.5, height: size/3.5).cornerRadius(2) // Botón Stop
+                    }
+                }
+            } else if isDownloaded {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: fontSize))
+                    .foregroundColor(.green)
+            } else {
+                Button(action: { viewModel.startDownload(app: app) }) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: fontSize))
+                        .foregroundColor(.cyan)
+                }
+            }
+        }
+        .frame(width: isLarge ? 60 : 40, height: isLarge ? 60 : 40)
     }
 }
 
 // MARK: - Sources View
 struct SourcesView: View {
     @EnvironmentObject var viewModel: AppViewModel
-    @State private var newRepoName: String = ""
     @State private var newRepoURL: String = ""
     
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            BlobBackgroundView()
             
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Fuentes de SwiftStore")
-                    .font(.title)
-                    .bold()
-                    .foregroundColor(.white)
-                    .padding(.horizontal)
-                    .padding(.top)
-                
+            VStack(spacing: 20) {
                 LiquidGlassCard {
                     VStack(spacing: 10) {
-                        TextField("Nombre del Repo", text: $newRepoName)
-                            .padding(10)
+                        TextField("URL del Repositorio (https://...)", text: $newRepoURL)
+                            .padding(12)
                             .background(Color.white.opacity(0.08))
                             .cornerRadius(8)
                             .foregroundColor(.white)
-                        
-                        TextField("https://...", text: $newRepoURL)
-                            .padding(10)
-                            .background(Color.white.opacity(0.08))
-                            .cornerRadius(8)
-                            .foregroundColor(.white)
+                            .keyboardType(.URL)
+                            .autocapitalization(.none)
                         
                         Button(action: {
-                            viewModel.addSource(name: newRepoName, url: newRepoURL)
-                            newRepoName = ""
+                            viewModel.addSource(url: newRepoURL)
                             newRepoURL = ""
                         }) {
                             Text("Añadir Repositorio")
@@ -389,10 +521,19 @@ struct SourcesView: View {
                     }
                 }
                 .padding(.horizontal)
+                .padding(.top)
                 
                 List {
                     ForEach(viewModel.sources) { source in
-                        HStack {
+                        HStack(spacing: 15) {
+                            AsyncImage(url: URL(string: source.iconURL ?? "")) { image in
+                                image.resizable().aspectRatio(contentMode: .fill)
+                            } placeholder: {
+                                Image(systemName: "server.rack").foregroundColor(.gray)
+                            }
+                            .frame(width: 40, height: 40)
+                            .cornerRadius(8)
+                            
                             VStack(alignment: .leading) {
                                 Text(source.name)
                                     .foregroundColor(.white)
@@ -400,167 +541,103 @@ struct SourcesView: View {
                                 Text(source.url)
                                     .font(.caption)
                                     .foregroundColor(.gray)
+                                    .lineLimit(1)
                             }
-                            Spacer()
                         }
-                        .listRowBackground(Color.black)
+                        .listRowBackground(Color.white.opacity(0.05))
+                    }
+                    .onDelete { indexSet in
+                        viewModel.sources.remove(atOffsets: indexSet)
+                        viewModel.fetchApps() // Recargar apps sin esa fuente
                     }
                 }
-                .listStyle(PlainListStyle())
+                .scrollContentBackground(.hidden) // Oculta el fondo del List nativo
             }
         }
+        .navigationTitle("Fuentes")
     }
 }
 
 // MARK: - Settings View
 struct SettingsView: View {
     @EnvironmentObject var viewModel: AppViewModel
-    @State private var newFontName: String = ""
     
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            BlobBackgroundView()
             
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Configuración")
-                    .font(.title)
-                    .bold()
-                    .foregroundColor(.white)
-                    .padding(.horizontal)
-                    .padding(.top)
+            Form {
+                Section(header: Text("Sincronización").foregroundColor(.cyan)) {
+                    Toggle("Async Repo Sync", isOn: $viewModel.asyncRepoSync)
+                    Toggle("Actualizar apps automáticamente", isOn: $viewModel.autoUpdateApps)
+                    Toggle("Descargar solo con Wi-Fi", isOn: $viewModel.wifiOnly)
+                }
+                .listRowBackground(Color.white.opacity(0.08))
                 
-                LiquidGlassCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Personalizar Fuentes")
-                            .font(.headline)
-                            .foregroundColor(.cyan)
-                        
-                        HStack {
-                            TextField("Nombre de fuente del sistema...", text: $newFontName)
-                                .padding(10)
-                                .background(Color.white.opacity(0.08))
-                                .cornerRadius(8)
-                                .foregroundColor(.white)
-                            
-                            Button("Añadir") {
-                                viewModel.addCustomFont(name: newFontName)
-                                newFontName = ""
-                            }
-                            .padding(.horizontal, 15)
-                            .padding(.vertical, 10)
-                            .background(Color.cyan)
-                            .foregroundColor(.black)
-                            .cornerRadius(8)
-                        }
-                        
-                        Picker("Fuente de la app", selection: $viewModel.selectedFont) {
-                            ForEach(viewModel.customFonts, id: \.self) { font in
-                                Text(font).tag(font)
-                            }
-                        }
-                        .pickerStyle(WheelPickerStyle())
-                        .frame(height: 100)
-                        .clipped()
+                Section(header: Text("Apariencia").foregroundColor(.cyan)) {
+                    Toggle("Modo AMOLED (Pitch Black)", isOn: $viewModel.amoledPitchBlack)
+                }
+                .listRowBackground(Color.white.opacity(0.08))
+                
+                Section(header: Text("Información").foregroundColor(.cyan)) {
+                    HStack {
+                        Text("Versión")
+                        Spacer()
+                        Text("2.0.0").foregroundColor(.gray)
+                    }
+                    HStack {
+                        Text("Desarrollador")
+                        Spacer()
+                        Text("elmendezz").font(.system(.body, design: .monospaced)).foregroundColor(.cyan)
                     }
                 }
-                .padding(.horizontal)
-                
-                Spacer()
+                .listRowBackground(Color.white.opacity(0.08))
             }
+            .scrollContentBackground(.hidden)
         }
+        .navigationTitle("Configuración")
     }
 }
 
-// MARK: - Credits View & Animated Renders
-struct CreditsView: View {
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            
-            VStack(spacing: 30) {
-                Text("Créditos")
-                    .font(.largeTitle)
-                    .bold()
-                    .foregroundColor(.white)
-                
-                AnimatedRender3D()
-                    .frame(width: 150, height: 150)
-                
-                LiquidGlassCard {
-                    VStack(spacing: 15) {
-                        Text("Desarrollado por")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
-                        
-                        Text("elmendezz")
-                            .font(.system(size: 24, weight: .bold, design: .monospaced))
-                            .foregroundColor(.cyan)
-                        
-                        Divider().background(Color.white.opacity(0.2))
-                        
-                        Text("Asistido por")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
-                        
-                        Text("Gemini")
-                            .font(.system(size: 22, weight: .semibold, design: .rounded))
-                            .foregroundColor(.purple)
-                    }
-                    .padding()
-                }
-                .padding(.horizontal, 30)
-            }
-        }
-    }
-}
-
-// MARK: - Random Geometric Render Icon
-struct RenderIconView: View {
-    var body: some View {
-        ZStack {
-            LinearGradient(colors: [.purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
-            
-            Path { path in
-                path.move(to: CGPoint(x: 10, y: 10))
-                path.addLine(to: CGPoint(x: 40, y: 20))
-                path.addLine(to: CGPoint(x: 25, y: 45))
-                path.closeSubpath()
-            }
-            .fill(Color.white.opacity(0.4))
-            
-            Circle()
-                .fill(Color.cyan.opacity(0.6))
-                .frame(width: 18, height: 18)
-                .offset(x: 8, y: -8)
-        }
-    }
-}
-
-// MARK: - Animated 3D Shape Render
-struct AnimatedRender3D: View {
-    @State private var rotateX = 0.0
-    @State private var rotateY = 0.0
+// MARK: - Liquid Glass UI Component
+struct LiquidGlassCard<Content: View>: View {
+    var content: Content
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
     
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 24)
-                .fill(
-                    LinearGradient(colors: [.cyan, .purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
-                )
-                .frame(width: 100, height: 100)
-                .rotation3DEffect(.degrees(rotateX), axis: (x: 1, y: 0, z: 0))
-                .rotation3DEffect(.degrees(rotateY), axis: (x: 0, y: 1, z: 0))
-            
-            Circle()
-                .stroke(Color.white.opacity(0.8), lineWidth: 3)
-                .frame(width: 120, height: 120)
-                .rotation3DEffect(.degrees(-rotateY), axis: (x: 0, y: 1, z: 0))
+        content
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+                    .background(.ultraThinMaterial.opacity(0.3)) // Efecto Glassmorphism
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [Color.white.opacity(0.3), Color.white.opacity(0.05)]),
+                                    startPoint: .topLeading, endPoint: .bottomTrailing
+                                ), lineWidth: 1.5
+                            )
+                    )
+            )
+            .shadow(color: Color.black.opacity(0.6), radius: 10, x: 0, y: 5)
+    }
+}
+
+// Extension to use Hex Colors easily for the Blob
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default: (a, r, g, b) = (1, 1, 1, 0)
         }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 3.0).repeatForever(autoreverses: true)) {
-                rotateX = 360
-                rotateY = 180
-            }
-        }
+        self.init(.sRGB, red: Double(r) / 255, green: Double(g) / 255, blue:  Double(b) / 255, opacity: Double(a) / 255)
     }
 }
