@@ -1,13 +1,3 @@
-//
-//  SideloadApp.swift
-//  SwiftStore
-//
-//  CHANGELOG:
-//  - Version 3.1.1: Menú de créditos clásico con formas aleatorias (AnimatedRender3D),
-//    Manejo de errores detallado al añadir/sincronizar repositorios.
-//  - EASTER EGG: ¡Gracias por usar la asistencia de Gemini en este proyecto! 🤖✨
-//
-
 import SwiftUI
 import Combine
 
@@ -151,7 +141,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     
     // MARK: Funciones de Red (Con Estatus y Errores Detallados)
     func addSource(url: String) {
-        guard let validURL = URL(string: url), validURL.scheme != nil else { return }
+        guard let validURL = URL(string: url) else { return } // Removida validación estricta de scheme para mejor soporte HTTP
         DispatchQueue.main.async {
             self.isUpdatingRepos = true
             self.repoUpdateStatus = "Descargando JSON del nuevo repositorio..."
@@ -526,7 +516,7 @@ struct AppCardView: View {
             HStack(spacing: 15) {
                 AsyncImage(url: URL(string: app.iconURL ?? "")) { phase in
                     if let image = phase.image { image.resizable().aspectRatio(contentMode: .fill) }
-                    else if phase.error != nil { Color.gray }
+                    else if phase.error != nil { Color.black.opacity(0.8) } // Color Oscuro estilo Google
                     else { ProgressView() }
                 }.frame(width: 55, height: 55).cornerRadius(14)
                 
@@ -551,7 +541,7 @@ struct AppDetailView: View {
                 VStack(spacing: 20) {
                     AsyncImage(url: URL(string: app.iconURL ?? "")) { phase in
                         if let image = phase.image { image.resizable().aspectRatio(contentMode: .fit) }
-                        else { RoundedRectangle(cornerRadius: 24).fill(Color.gray.opacity(0.3)) }
+                        else { RoundedRectangle(cornerRadius: 24).fill(Color.black.opacity(0.8)) } // Color Oscuro estilo Google
                     }.frame(width: 120, height: 120).cornerRadius(24).shadow(radius: 10)
                     
                     Text(app.name).font(.largeTitle).bold().foregroundColor(.white)
@@ -570,7 +560,7 @@ struct AppDetailView: View {
                 Menu {
                     Button(action: { viewModel.deleteAppFile(app: app); viewModel.startDownload(app: app) }) { Label("Volver a descargar", systemImage: "arrow.clockwise.icloud") }
                     Button(action: { viewModel.deleteAppFile(app: app) }) { Label("Eliminar", systemImage: "trash") }
-                } label: { Image(systemName: "ellipsis.circle").foregroundColor(.cyan) }
+                } label: { Image(systemName: "ellipsis").foregroundColor(.white).font(.headline) } // Icono nativo de 3 puntos
             }
         }
     }
@@ -630,7 +620,7 @@ struct SourcesView: View {
                 if editMode == .inactive {
                     LiquidGlassCard {
                         VStack(spacing: 10) {
-                            TextField("URL (https://...)", text: $newRepoURL)
+                            TextField("URL (http://... o https://...)", text: $newRepoURL)
                                 .padding(12).background(Color.white.opacity(0.08)).cornerRadius(8).foregroundColor(.white).keyboardType(.URL).autocapitalization(.none)
                             
                             Button(action: { viewModel.addSource(url: newRepoURL); newRepoURL = "" }) {
@@ -791,7 +781,7 @@ struct SettingsView: View {
                         Image(randomImageName.isEmpty ? "default_render" : randomImageName)
                             .resizable().aspectRatio(contentMode: .fit).frame(height: 120).cornerRadius(15)
                             .onAppear { randomImageName = renders.randomElement() ?? "" }
-                        Text("SwiftStore v3.1.1").font(.headline).foregroundColor(.white)
+                        Text("SwiftStore v3.1.2").font(.headline).foregroundColor(.white)
                     }.frame(maxWidth: .infinity).padding(.vertical, 10)
                     
                     NavigationLink(destination: CreditsView()) {
@@ -805,84 +795,6 @@ struct SettingsView: View {
             }.hideListBackground()
         }
         .navigationTitle("Configuración")
-    }
-}
-
-// MARK: - Credits View & Animated Renders
-struct CreditsView: View {
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            
-            VStack(spacing: 30) {
-                Text("Créditos")
-                    .font(.largeTitle)
-                    .bold()
-                    .foregroundColor(.white)
-                
-                AnimatedRender3D()
-                    .frame(width: 150, height: 150)
-                
-                LiquidGlassCard {
-                    VStack(spacing: 15) {
-                        Text("Desarrollado por")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
-                        
-                        Text("elmendezz")
-                            .font(.system(size: 24, weight: .bold, design: .monospaced))
-                            .foregroundColor(.cyan)
-                        
-                        Divider().background(Color.white.opacity(0.2))
-                        
-                        Text("Asistido por")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
-                        
-                        Text("Gemini")
-                            .font(.system(size: 22, weight: .semibold, design: .rounded))
-                            .foregroundColor(.purple)
-                    }
-                    .padding()
-                }
-                .padding(.horizontal, 30)
-            }
-        }
-    }
-}
-
-// Animación de Formas Aleatorias para la Vista de Créditos
-struct AnimatedRender3D: View {
-    @State private var phase: Double = 0
-    
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(LinearGradient(colors: [.cyan, .blue], startPoint: .top, endPoint: .bottom))
-                .frame(width: 100, height: 100)
-                .offset(x: sin(phase) * 30, y: cos(phase) * 30)
-                .shadow(color: .cyan.opacity(0.5), radius: 10)
-            
-            RoundedRectangle(cornerRadius: 25)
-                .fill(LinearGradient(colors: [.purple, .indigo], startPoint: .leading, endPoint: .trailing))
-                .frame(width: 90, height: 90)
-                .rotationEffect(.degrees(phase * 60))
-                .offset(x: cos(phase * 1.5) * -40, y: sin(phase * 0.8) * 40)
-                .shadow(color: .purple.opacity(0.5), radius: 10)
-            
-            Capsule()
-                .fill(LinearGradient(colors: [.orange, .pink], startPoint: .bottomLeading, endPoint: .topTrailing))
-                .frame(width: 120, height: 50)
-                .rotationEffect(.degrees(-phase * 45))
-                .offset(x: sin(phase * 1.2) * 20, y: cos(phase * 1.5) * -40)
-                .shadow(color: .pink.opacity(0.5), radius: 10)
-        }
-        .blur(radius: 2)
-        .onAppear {
-            withAnimation(.linear(duration: 8).repeatForever(autoreverses: true)) {
-                phase = .pi * 2
-            }
-        }
     }
 }
 
