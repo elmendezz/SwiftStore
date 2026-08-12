@@ -693,37 +693,60 @@ struct LiveStatusOverlay: View {
 struct StoreView: View {
     @EnvironmentObject var viewModel: AppViewModel
     @EnvironmentObject var scrollObserver: ScrollObserver
+    @FocusState private var isSearchFocused: Bool // Para controlar el foco del buscador
     
     var filteredApps: [AltStoreApp] {
         viewModel.searchText.isEmpty ? viewModel.apps : viewModel.apps.filter { $0.name.localizedCaseInsensitiveContains(viewModel.searchText) }
     }
     
     var body: some View {
-        ZStack {
-            BlobBackgroundView()
+        ScrollViewReader { proxy in // Permite el scroll programático
+            ZStack {
+                BlobBackgroundView()
 
-            ScrollView {
-                VStack(spacing: 15) {
-                    HStack {
-                        Image(systemName: "magnifyingglass").foregroundColor(.gray)
-                        TextField("Buscar aplicaciones...", text: $viewModel.searchText)
-                            .foregroundColor(.white)
-                    }
-                    .padding(12).background(Color.white.opacity(0.08)).cornerRadius(12)
-                    .padding([.horizontal, .top])
-                    
-                    if filteredApps.isEmpty {
-                        VStack(spacing: 10) {
-                            Image(systemName: "square.grid.2x2").font(.system(size: 50)).foregroundColor(.gray)
-                            Text("No hay apps disponibles.").foregroundColor(.gray)
-                        }.padding(.top, 50)
-                    } else {
-                        LazyVStack(spacing: 12) {
-                            ForEach(filteredApps) { app in
-                                NavigationLink(destination: AppDetailView(app: app)) { AppCardView(app: app) }.buttonStyle(PlainButtonStyle())
+                ScrollView {
+                    VStack(spacing: 15) {
+                        // Buscador con efecto Liquid Glass y botón de limpiar
+                        LiquidGlassCard {
+                            HStack {
+                                Image(systemName: "magnifyingglass").foregroundColor(.gray)
+                                TextField("Buscar aplicaciones...", text: $viewModel.searchText)
+                                    .foregroundColor(.white)
+                                    .focused($isSearchFocused) // Asocia el foco al estado
+                                
+                                if !viewModel.searchText.isEmpty {
+                                    Button(action: {
+                                        viewModel.searchText = ""
+                                        isSearchFocused = false // Quita el foco y cierra el teclado
+                                    }) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundColor(.gray)
+                                    }
+                                }
                             }
-                        }.padding(.horizontal).padding(.bottom, 20)
-                    } 
+                        }
+                        .padding([.horizontal, .top])
+                        .id("topOfScroll") // ID para poder hacer scroll hasta aquí
+                        
+                        if filteredApps.isEmpty {
+                            VStack(spacing: 10) {
+                                Image(systemName: "square.grid.2x2").font(.system(size: 50)).foregroundColor(.gray)
+                                Text("No hay apps disponibles.").foregroundColor(.gray)
+                            }.padding(.top, 50)
+                        } else {
+                            LazyVStack(spacing: 12) {
+                                ForEach(filteredApps) { app in
+                                    NavigationLink(destination: AppDetailView(app: app)) { AppCardView(app: app) }.buttonStyle(PlainButtonStyle())
+                                }
+                            }.padding(.horizontal).padding(.bottom, 20)
+                        }
+                    }
+                    .onTapGesture(count: 2) { // Doble tap en el contenido del scroll
+                        withAnimation {
+                            proxy.scrollTo("topOfScroll", anchor: .top)
+                        }
+                        isSearchFocused = true // Enfoca el buscador
+                    }
                 }
                 .background(
                     // Observador de scroll simplificado
@@ -736,7 +759,6 @@ struct StoreView: View {
                 )
             }
             .coordinateSpace(name: "scroll")
-            .onPreferenceChange(ScrollOffsetPreferenceKey.self, perform: scrollObserver.updateVelocity(from:))
         }
         .navigationTitle("SwiftStore")
     }
@@ -1145,6 +1167,52 @@ class ScrollObserver: ObservableObject {
         withAnimation(.easeOut(duration: 0.1)) {
             self.scrollVelocity = velocity
         }
+        self.lastOffset = offset
+    }
+}
+
+struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+// MARK: - Liquid Glass Component & Colors
+struct LiquidGlassCard<Content: View>: View {
+    var content: Content
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
+    var body: some View {
+        content.padding()
+            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white.opacity(0.06)).background(.ultraThinMaterial.opacity(0.3)).overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(LinearGradient(gradient: Gradient(colors: [Color.white.opacity(0.3), Color.white.opacity(0.05)]), startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)))
+            .shadow(color: Color.black.opacity(0.6), radius: 10, x: 0, y: 5)
+    }
+}
+
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default: (a, r, g, b) = (1, 1, 1, 0)
+        }
+        self.init(.sRGB, red: Double(r) / 255, green: Double(g) / 255, blue:  Double(b) / 255, opacity: Double(a) / 255)
+    }
+}
+
+extension View {
+    /// Aplica un modificador condicionalmente.
+    @ViewBuilder
+    func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
+    }
+}
         self.lastOffset = offset
     }
 }
