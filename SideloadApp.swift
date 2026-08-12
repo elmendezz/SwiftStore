@@ -145,8 +145,11 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     @Published var downloadQueue: [AltStoreApp] = []
     private var currentDownload: AltStoreApp?
     private var downloadSession: URLSession!
+    private var repoDownloadSession: URLSession! // Sesión dedicada para añadir repositorios
     private var downloadTasks: [String: URLSessionDownloadTask] = [:]
     private var taskAppMap: [Int: AltStoreApp] = [:]
+    private var repoDownloadTaskIdentifier: Int?
+    private var repoDownloadURL: String?
     
     // Variables de Undo
     @Published var recentlyDeletedSources: [AltStoreSource] = []
@@ -154,11 +157,16 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     
     override init() {
         super.init()
-        // Usamos una única sesión de URLSession para todas las descargas, con un delegado en un hilo de fondo.
-        // Se configura con un timeout para evitar que las descargas se queden estancadas indefinidamente.
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 60.0 // Timeout de 60 segundos para nuevas conexiones.
-        self.downloadSession = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        // Sesión para descargas de apps (IPA), con un timeout de conexión largo.
+        let appConfig = URLSessionConfiguration.default
+        appConfig.timeoutIntervalForRequest = 60.0
+        self.downloadSession = URLSession(configuration: appConfig, delegate: self, delegateQueue: nil)
+        
+        // Sesión para añadir nuevos repositorios (JSON), con un timeout de recurso estricto.
+        // Esto cancela la descarga completa si tarda más de 10 segundos.
+        let repoConfig = URLSessionConfiguration.default
+        repoConfig.timeoutIntervalForResource = 10.0 // Timeout de 10 segundos para toda la descarga.
+        self.repoDownloadSession = URLSession(configuration: repoConfig, delegate: self, delegateQueue: nil)
         
         loadSources()
         checkDownloadedFiles()
@@ -184,26 +192,22 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     
     // MARK: Funciones de Red (Con Estatus y Errores Detallados)
     func addSource(url: String) {
-        guard let validURL = URL(string: url), UIApplication.shared.canOpenURL(validURL) else {
-            finishUpdatingRepos(message: "Error: La URL ingresada no es válida.", delay: 3.5)
+        guard let validURL = URL(string: url) else {
+            // La validación de canOpenURL no es fiable para URLs de red.
+            finishUpdatingRepos(message: "Error: La URL no parece ser válida.", delay: 3.5)
             return
         }
         DispatchQueue.main.async {
             self.isUpdatingRepos = true
             self.repoUpdateStatus = "Descargando JSON del nuevo repositorio..."
-            self.repoDownloadProgress = 0.0 // El progreso no está disponible con URLSessionDataTask
+            self.repoDownloadProgress = 0.01 // Iniciar progreso visual para mostrar la barra.
         }
         
-        // Se usa URLSessionDataTask con un timeout para evitar bloqueos.
-        // No se puede mostrar el progreso de descarga con este método.
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30.0 // 30 segundos de timeout
-        let session = URLSession(configuration: config)
-        
-        session.dataTask(with: validURL) { [weak self] data, response, error in
-            guard let self = self else { return }
-            self.processDownloadedRepo(url: url, data: data, error: error)
-        }.resume()
+        // Guardamos la URL para usarla en los métodos del delegado de URLSession.
+        self.repoDownloadURL = url
+        let task = repoDownloadSession.downloadTask(with: validURL)
+        self.repoDownloadTaskIdentifier = task.taskIdentifier
+        task.resume()
     }
 
     func fetchApps() {
@@ -270,12 +274,17 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     private func processDownloadedRepo(url: String, data: Data?, error: Error?) {
         if let error = error {
             let errorMessage: String
-            if let urlError = error as? URLError, urlError.code == .cannotFindHost {
-                errorMessage = "Error: No se pudo encontrar el host. Revisa la URL."
-            } else if let urlError = error as? URLError, urlError.code == .timedOut {
-                errorMessage = "Error: La solicitud tardó demasiado (timeout)."
+            if let urlError = error as? URLError {
+                switch urlError.code {
+                case .timedOut:
+                    errorMessage = "Error: La solicitud tardó más de 10 segundos (timeout)."
+                case .cannotFindHost:
+                    errorMessage = "Error: No se pudo encontrar el host. Revisa la URL."
+                default:
+                    errorMessage = "Fallo de red: \(error.localizedDescription)"
+                }
             } else {
-                errorMessage = "Fallo de red: \(error.localizedDescription)"
+                errorMessage = "Error inesperado: \(error.localizedDescription)"
             }
             finishUpdatingRepos(message: errorMessage, delay: 3.5)
             return
@@ -316,9 +325,12 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     }
     
     private func finishUpdatingRepos(message: String, delay: Double = 2.0) {
-        self.repoUpdateStatus = message
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            self.isUpdatingRepos = false
+        DispatchQueue.main.async {
+            self.repoUpdateStatus = message
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                self.isUpdatingRepos = false
+                self.repoDownloadProgress = 0.0 // Limpiar la barra de progreso
+            }
         }
     }
     
@@ -414,8 +426,20 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     }
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        // Si es una descarga de app
-        if let app = taskAppMap[downloadTask.taskIdentifier] {
+        // Comprobar si es la descarga de un nuevo repositorio.
+        if downloadTask.taskIdentifier == repoDownloadTaskIdentifier {
+            guard let repoURL = self.repoDownloadURL, let data = try? Data(contentsOf: location) else {
+                processDownloadedRepo(url: self.repoDownloadURL ?? "", data: nil, error: nil)
+                return
+            }
+            processDownloadedRepo(url: repoURL, data: data, error: nil)
+            
+            // Limpieza
+            self.repoDownloadTaskIdentifier = nil
+            self.repoDownloadURL = nil
+        }
+        // O si es la descarga de una app.
+        else if let app = taskAppMap[downloadTask.taskIdentifier] {
             let dest = downloadsDirectory.appendingPathComponent("\(app.bundleIdentifier).ipa")
             try? FileManager.default.removeItem(at: dest)
             try? FileManager.default.moveItem(at: location, to: dest)
@@ -423,26 +447,39 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             DispatchQueue.main.async {
                 self.downloadedApps.insert(app.bundleIdentifier)
                 self.refreshFilesList()
-                self.finishDownloadProcessing(for: app.bundleIdentifier)
             }
+            finishDownloadProcessing(for: app.bundleIdentifier)
         }
-        // Si es una descarga de repositorio, el closure de finalización en `addSource` se encarga.
     }
     
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        // El error en la descarga de un repositorio se maneja en el closure de `addSource`.
-        // Error en la descarga de una app:
+        // Comprobar si es un error en la descarga de un nuevo repositorio.
+        if let error = error, task.taskIdentifier == repoDownloadTaskIdentifier {
+            processDownloadedRepo(url: self.repoDownloadURL ?? "", data: nil, error: error)
+            
+            // Limpieza
+            self.repoDownloadTaskIdentifier = nil
+            self.repoDownloadURL = nil
+            return
+        }
+        
+        // O si es un error en la descarga de una app.
         if let _ = error, let app = taskAppMap[task.taskIdentifier] {
             finishDownloadProcessing(for: app.bundleIdentifier)
         }
     }
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        // El progreso para la descarga de repositorios ya no se maneja aquí.
-        // Si es una descarga de app
-        guard let app = taskAppMap[downloadTask.taskIdentifier], totalBytesExpectedToWrite > 0 else { return }
-        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
-        DispatchQueue.main.async { self.downloadProgress[app.bundleIdentifier] = progress }
+        // Comprobar si es el progreso de la descarga de un nuevo repositorio.
+        if downloadTask.taskIdentifier == repoDownloadTaskIdentifier, totalBytesExpectedToWrite > 0 {
+            let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+            DispatchQueue.main.async { self.repoDownloadProgress = progress }
+        }
+        // O si es el progreso de la descarga de una app.
+        else if let app = taskAppMap[downloadTask.taskIdentifier], totalBytesExpectedToWrite > 0 {
+            let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+            DispatchQueue.main.async { self.downloadProgress[app.bundleIdentifier] = progress }
+        }
     }
 }
 
