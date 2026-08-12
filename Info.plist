@@ -6,14 +6,25 @@
 	<string>SwiftStore</string>
 	<key>CFBundleExecutable</key>
 	<string>SwiftStore</string>
+	<key>CFBundleIcons</key>
+	<dict>
+		<key>CFBundlePrimaryIcon</key>
+		<dict>
+			<key>CFBundleIconFiles</key>
+			<array>
+				<string>Icon-60@2x</string>
+				<string>Icon-60@3x</string>
+			</array>
+		</dict>
+	</dict>
 	<key>CFBundleIdentifier</key>
 	<string>com.elmendezz.swiftstore</string>
 	<key>CFBundleName</key>
 	<string>SwiftStore</string>
 	<key>CFBundleShortVersionString</key>
-	<string>3.6.0</string>
+	<string>3.6.1</string>
 	<key>CFBundleVersion</key>
-	<string>3.6.0</string>
+	<string>3.6.1</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
@@ -27,16 +38,5 @@
 	</dict>
 	<key>UIFileSharingEnabled</key>
 	<true/>
-	<key>CFBundleIcons</key>
-	<dict>
-		<key>CFBundlePrimaryIcon</key>
-		<dict>
-			<key>CFBundleIconFiles</key>
-			<array>
-				<string>Icon-60@2x</string>
-				<string>Icon-60@3x</string>
-			</array>
-		</dict>
-	</dict>
 </dict>
 </plist>
