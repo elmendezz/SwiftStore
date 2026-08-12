@@ -62,13 +62,13 @@ struct SourcesView: View {
                                 }
                             }
 
-                        ZStack {
-                            rowContent
-                            
-                            // NavigationLink invisible que cubre toda la fila
-                            if isSuccess, let count = status.flatMap({ if case .success(let c) = $0 { return c } else { return nil } }) {
-                                NavigationLink(destination: SourceDetailView(source: source, appCount: count)) { EmptyView() }.opacity(0)
+                        if isSuccess, let count = status.flatMap({ if case .success(let c) = $0 { return c } else { return nil } }) {
+                            NavigationLink(destination: SourceDetailView(source: source, appCount: count)) {
+                                rowContent
                             }
+                        } else {
+                            // Si no hay éxito, mostramos la fila sin navegación
+                            rowContent
                         }
                         .listRowBackground(Color.white.opacity(0.05))
                         .onLongPressGesture { if sourceManager.sources.count >= 2 { withAnimation { editMode = .active } } }
@@ -117,7 +117,9 @@ struct SourcesView: View {
         .navigationTitle("Fuentes")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { sourceManager.fetchApps() }) { Image(systemName: "arrow.triangle.2.circlepath").foregroundColor(.cyan) }
+                Button(action: { sourceManager.fetchApps() }) {
+                    Image(systemName: "arrow.triangle.2.circlepath").foregroundColor(.cyan)
+                }
             }
         }
         .alert("Fuente Duplicada", isPresented: $sourceManager.showSourceExistsAlert) {

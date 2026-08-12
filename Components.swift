@@ -6,173 +6,39 @@ import Combine
 struct BlobBackgroundView: View {
     @AppStorage("enableAnimatedBackground")
     var enableAnimatedBackground: Bool = true
-
-    @EnvironmentObject var scrollObserver: ScrollObserver
-
-    @State private var rotation1: Double = 0
-    @State private var rotation2: Double = 0
-    @State private var rotation3: Double = 0
-
+    
+    @State private var rotation: Double = 0
+    
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                // Fondo base
-                Color.black
-                    .ignoresSafeArea()
-
-                if enableAnimatedBackground {
-
-                    // =====================================================
-                    // BLOB 1
-                    // =====================================================
-
-                    BlobShape(
-                        points: 9,
-                        amplitude: 0.25,
-                        phase: rotation1 * .pi / 180
-                    )
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            if enableAnimatedBackground {
+                Circle()
                     .fill(
                         LinearGradient(
-                            colors: [
-                                Color(hex: "#4C3A78"),
-                                Color(hex: "#252044"),
-                                Color(hex: "#151329")
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+                            colors: [Color(hex: "#3E3564"), .black],
+                            startPoint: .top,
+                            endPoint: .bottom
                         )
                     )
-                    .frame(
-                        width: geometry.size.width * 1.15,
-                        height: geometry.size.height * 0.72
-                    )
-                    .blur(radius: 55)
-                    .rotationEffect(.degrees(rotation1))
-                    .offset(
-                        x: geometry.size.width * 0.22,
-                        y: -geometry.size.height * 0.18
-                    )
-                    .opacity(0.85)
-
-                    // =====================================================
-                    // BLOB 2
-                    // =====================================================
-
-                    BlobShape(
-                        points: 8,
-                        amplitude: 0.22,
-                        phase: rotation2 * .pi / 180
-                    )
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(hex: "#34305C"),
-                                Color(hex: "#241F43"),
-                                Color(hex: "#11101F")
-                            ],
-                            startPoint: .topTrailing,
-                            endPoint: .bottomLeading
-                        )
-                    )
-                    .frame(
-                        width: geometry.size.width * 1.05,
-                        height: geometry.size.height * 0.65
-                    )
-                    .blur(radius: 65)
-                    .rotationEffect(.degrees(rotation2))
-                    .offset(
-                        x: -geometry.size.width * 0.30,
-                        y: geometry.size.height * 0.22
-                    )
-                    .opacity(0.75)
-
-                    // =====================================================
-                    // BLOB 3
-                    // =====================================================
-
-                    BlobShape(
-                        points: 10,
-                        amplitude: 0.18,
-                        phase: rotation3 * .pi / 180
-                    )
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(hex: "#5A477F"),
-                                Color(hex: "#31264F"),
-                                Color(hex: "#161326")
-                            ],
-                            startPoint: .bottomLeading,
-                            endPoint: .topTrailing
-                        )
-                    )
-                    .frame(
-                        width: geometry.size.width * 0.95,
-                        height: geometry.size.height * 0.55
-                    )
-                    .blur(radius: 70)
-                    .rotationEffect(.degrees(rotation3))
-                    .offset(
-                        x: geometry.size.width * 0.30,
-                        y: geometry.size.height * 0.38
-                    )
-                    .opacity(0.65)
-
-                    // =====================================================
-                    // Sutil respuesta al scroll
-                    // =====================================================
-
-                    Color.clear
-                        .rotationEffect(
-                            .degrees(
-                                Double(
-                                    min(
-                                        max(scrollObserver.scrollVelocity / 35, -5),
-                                        5
-                                    )
-                                )
-                            )
-                        )
-                }
+                    .frame(width: 600, height: 600)
+                    .rotationEffect(.degrees(rotation))
+                    .offset(y: -300)
+                    .opacity(0.5)
             }
-            .ignoresSafeArea()
         }
         .allowsHitTesting(false)
         .onAppear {
-            startAnimations()
-        }
-    }
-
-    // MARK: - Animaciones
-
-    private func startAnimations() {
-
-        withAnimation(
-            .linear(duration: 70)
-            .repeatForever(autoreverses: false)
-        ) {
-            rotation1 = 360
-        }
-
-        withAnimation(
-            .linear(duration: 95)
-            .repeatForever(autoreverses: false)
-        ) {
-            rotation2 = -360
-        }
-
-        withAnimation(
-            .linear(duration: 120)
-            .repeatForever(autoreverses: false)
-        ) {
-            rotation3 = 360
+            withAnimation(.linear(duration: 80).repeatForever(autoreverses: false)) {
+                rotation = 360
+            }
         }
     }
 }
 
 
 // MARK: - Organic Blob Shape
-
 struct BlobShape: Shape {
 
     let points: Int
