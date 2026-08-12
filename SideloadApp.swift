@@ -566,7 +566,7 @@ struct BlobBackgroundView: View {
                 .frame(width: 400, height: 400)
                 .blur(radius: 80)
                 .offset(y: -100) // Lo subimos un poco para que sea más visible detrás de las listas
-                .rotationEffect(.degrees(scrollObserver.scrollVelocity / 10)) // Respuesta al scroll
+                .rotationEffect(.degrees(scrollObserver.scrollVelocity / 20)) // Respuesta al scroll
                 .onAppear {
                     // Animación base que se combina con la velocidad del scroll
                     withAnimation(.linear(duration: 40).repeatForever(autoreverses: false)) {
@@ -579,14 +579,13 @@ struct BlobBackgroundView: View {
             }
         }
         // El entorno es la clave para que la vista de fondo reciba las notificaciones de scroll
-        .environmentObject(scrollObserver)
     }
 }
 
 // MARK: - Main Tab View
 struct MainTabView: View {
     @StateObject private var viewModel = AppViewModel()
-    @State private var showingShakeUndo = false
+    @StateObject private var scrollObserver = ScrollObserver() // El observador ahora vive aquí
     @State private var showingLogView = false
     
     var body: some View {
@@ -621,9 +620,9 @@ struct MainTabView: View {
                 if #available(iOS 15.0, *) { UITabBar.appearance().scrollEdgeAppearance = appearance }
             }
             .onReceive(NotificationCenter.default.publisher(for: .shakeToUndo)) { _ in
-                if !viewModel.recentlyDeletedSources.isEmpty { showingShakeUndo = true }
+                if !viewModel.recentlyDeletedSources.isEmpty { viewModel.showUndoAlert = true }
             }
-            .alert(isPresented: $showingShakeUndo) {
+            .alert(isPresented: $viewModel.showUndoAlert) {
                 Alert(
                     title: Text("Deshacer acción"),
                     message: Text("¿Deseas restaurar las fuentes eliminadas recientemente?"),
@@ -646,6 +645,7 @@ struct MainTabView: View {
             ActivityLogView()
                 .environmentObject(viewModel)
         }
+        .environmentObject(scrollObserver) // Inyectamos el observador en el entorno
     }
 }
 
@@ -722,12 +722,22 @@ struct StoreView: View {
                                 NavigationLink(destination: AppDetailView(app: app)) { AppCardView(app: app) }.buttonStyle(PlainButtonStyle())
                             }
                         }.padding(.horizontal).padding(.bottom, 20)
-                    }
+                    } 
                 }
-                .background(ScrollVelocityObserver()) // Observador de velocidad de scroll
+                .background(
+                    // Observador de scroll simplificado
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: ScrollOffsetPreferenceKey.self,
+                            value: proxy.frame(in: .named("scroll")).minY
+                        )
+                    }
+                )
             }
-            
-        }.navigationTitle("SwiftStore")
+            .coordinateSpace(name: "scroll")
+            .onPreferenceChange(ScrollOffsetPreferenceKey.self, perform: scrollObserver.updateVelocity(from:))
+        }
+        .navigationTitle("SwiftStore")
     }
 }
 
@@ -1124,10 +1134,24 @@ struct CachedAsyncImage<Content: View, Placeholder: View>: View {
 }
 
 // MARK: - Observador de Velocidad de Scroll
-class ScrollObserver: ObservableObject { @Published var scrollVelocity: CGFloat = 0 }
-struct ScrollVelocityObserver: View { @EnvironmentObject var observer: ScrollObserver; var body: some View { GeometryReader { geo in Color.clear.preference(key: ScrollVelocityPreferenceKey.self, value: geo.frame(in: .global).minY) } } }
-struct ScrollVelocityPreferenceKey: PreferenceKey { static var defaultValue: CGFloat = 0; static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { let velocity = nextValue() - value; DispatchQueue.main.async { (UIApplication.shared.windows.first?.rootViewController?.view.subviews.first?.subviews.first?.subviews.first?.subviews.first?.subviews.first?.subviews.first?.subviews.first as? UIHostingController<MainTabView>)?.rootView.viewModel.scrollObserver.scrollVelocity = velocity } } }
+class ScrollObserver: ObservableObject {
+    @Published var scrollVelocity: CGFloat = 0
+    private var lastOffset: CGFloat = 0
 
+    func updateVelocity(from offset: CGFloat) {
+        let velocity = offset - lastOffset
+        // Usamos una animación para suavizar el cambio de velocidad
+        withAnimation(.easeOut(duration: 0.1)) {
+            self.scrollVelocity = velocity
+        }
+        self.lastOffset = offset
+    }
+}
+
+struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
 // MARK: - Liquid Glass Component & Colors
 struct LiquidGlassCard<Content: View>: View {
     var content: Content
