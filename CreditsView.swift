@@ -72,6 +72,9 @@ struct CreditsView: View {
                     .padding(.top, 4)
                 }
                 .padding(.bottom, 20)
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
             }
         }
         .sheet(isPresented: $showingLicensesSheet) {
