@@ -90,13 +90,29 @@ struct AltStoreApp: Identifiable, Codable, Hashable {
 }
 
 struct AltStoreFeed: Codable {
-    // Ignorar el campo 'identifier' del JSON para evitar errores de decodificación.
     private enum CodingKeys: String, CodingKey {
         case name, iconURL, apps
     }
     let name: String?
     let iconURL: String?
     let apps: [AltStoreApp]
+
+    // Decodificador personalizado para ignorar apps con formato incorrecto.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.iconURL = try container.decodeIfPresent(String.self, forKey: .iconURL)
+
+        var appsContainer = try container.nestedUnkeyedContainer(forKey: .apps)
+        var decodedApps: [AltStoreApp] = []
+
+        while !appsContainer.isAtEnd {
+            if let app = try? appsContainer.decode(AltStoreApp.self) {
+                decodedApps.append(app)
+            }
+        }
+        self.apps = decodedApps
+    }
 }
 
 // MARK: - View Model & Download Manager
@@ -748,6 +764,8 @@ struct SourcesView: View {
 // MARK: - Files Manager View
 struct FilesView: View {
     @EnvironmentObject var viewModel: AppViewModel
+    @State private var editMode: EditMode = .inactive
+    @State private var selection = Set<URL>()
     var body: some View {
         ZStack {
             BlobBackgroundView()
@@ -757,7 +775,7 @@ struct FilesView: View {
                     Text("No hay archivos descargados").foregroundColor(.gray)
                 }
             } else {
-                List {
+                List(selection: $selection) {
                     ForEach(viewModel.downloadedFiles, id: \.self) { fileURL in
                         HStack {
                             Image(systemName: "doc.zipper").font(.system(size: 30)).foregroundColor(.cyan).padding(.trailing, 8)
@@ -769,12 +787,34 @@ struct FilesView: View {
                                 }
                             }
                         }.padding(.vertical, 4).listRowBackground(Color.white.opacity(0.05))
+                        .onLongPressGesture {
+                            withAnimation { editMode = .active }
+                        }
                     }.onDelete { indexSet in
                         indexSet.forEach { index in try? FileManager.default.removeItem(at: viewModel.downloadedFiles[index]) }
                         viewModel.refreshFilesList()
                         viewModel.checkDownloadedFiles()
+                }
+                .environment(\.editMode, $editMode)
+                .hideListBackground()
+            }
+            
+            if editMode == .active {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 40) {
+                        Button(role: .destructive, action: {
+                            selection.forEach { url in try? FileManager.default.removeItem(at: url) }
+                            viewModel.refreshFilesList()
+                            viewModel.checkDownloadedFiles()
+                            selection.removeAll()
+                            editMode = .inactive
+                        }) { VStack { Image(systemName: "trash"); Text("Eliminar") } }.disabled(selection.isEmpty)
+                        
+                        Button(action: { selection.removeAll(); editMode = .inactive }) { VStack { Image(systemName: "xmark.circle"); Text("Cancelar") } }
                     }
-                }.hideListBackground()
+                    .padding().background(.ultraThinMaterial).cornerRadius(20).padding()
+                }
             }
         }
         .navigationTitle("Archivos")
