@@ -1,4 +1,5 @@
 import SwiftUI
+import Components // Importamos el nuevo archivo de componentes
 
 // MARK: - Files Manager View
 struct FilesView: View {

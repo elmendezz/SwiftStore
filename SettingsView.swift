@@ -1,4 +1,5 @@
 import SwiftUI
+import Components // Importamos el nuevo archivo de componentes
 
 // MARK: - Settings View
 struct SettingsView: View {

@@ -72,6 +72,12 @@ struct StoreView: View {
             .coordinateSpace(name: "scroll")
             .onPreferenceChange(ScrollOffsetPreferenceKey.self, perform: scrollObserver.updateVelocity(from:))
         }
+        .onReceive(NotificationCenter.default.publisher(for: .doubleTapStoreTab)) { _ in
+            // Cuando se detecta un doble toque en la pestaña de la tienda
+            withAnimation {
+                isSearchFocused = true
+            }
+        }
         .navigationTitle("SwiftStore")
     }
 }
@@ -85,17 +91,22 @@ struct AppCardView: View {
                 CachedAsyncImage(url: URL(string: app.iconURL ?? "")) { image in
                     image.resizable().aspectRatio(contentMode: .fill)
                 } placeholder: {
-                    ProgressView()
-                }.frame(width: 55, height: 55).background(Color.black.opacity(0.8)).cornerRadius(14)
+                    RoundedRectangle(cornerRadius: 15).fill(Color.black.opacity(0.8)) // Placeholder mejorado
+                }
+                .frame(width: 60, height: 60) // Tamaño ligeramente más grande
+                .background(Color.black.opacity(0.8))
+                .cornerRadius(15) // Radio de esquina ajustado
                 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(app.name).font(.system(size: 17, weight: .bold)).foregroundColor(.white)
-                    Text(app.developerName).font(.system(size: 13, weight: .regular)).foregroundColor(.gray)
+                VStack(alignment: .leading, spacing: 2) { // Espaciado reducido
+                    Text(app.name).font(.headline.bold()).foregroundColor(.white) // Fuente semántica
+                    Text(app.developerName).font(.subheadline).foregroundColor(.gray) // Fuente semántica
+                    
+                    Text("v\(app.version)") // Añadida la versión de la app
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                     
                     if let description = app.localizedDescription, !description.isEmpty {
-                        Text(description)
-                            .font(.caption)
-                            .foregroundColor(.gray)
+                        Text(description).font(.caption).foregroundColor(.secondary) // Usando secondary para mejor contraste
                             .lineLimit(2)
                             .padding(.top, 1)
                     }

@@ -11,6 +11,7 @@
 //  - Version 1.4: Fijados todos los textos y elementos del pie de página para garantizar que permanezcan 100% estáticos sin transiciones ni animaciones. Render 3D animado intacto.
 //
 
+import Components // Importamos el nuevo archivo de componentes
 import SwiftUI
 
 // MARK: - Tipos de Animación para Créditos
