@@ -29,49 +29,13 @@ struct SourcesView: View {
                 
                 List(selection: $selection) {
                     ForEach($sourceManager.sources) { $source in
-                        let status = sourceManager.sourceSyncStatus[source.url]
-                        let isSuccess = status.map { if case .success = $0 { return true } else { return false } } ?? false
-
-                        let rowContent = HStack(spacing: 15) {
-                                AsyncImage(url: URL(string: source.iconURL ?? "")) { phase in
-                                    if let image = phase.image { image.resizable().aspectRatio(contentMode: .fill) }
-                                    else { Image(systemName: "server.rack").foregroundColor(.gray) }
-                                }.frame(width: 40, height: 40).cornerRadius(8)
-                                
-                                VStack(alignment: .leading) {
-                                    Text(source.name).foregroundColor(.white).fontWeight(.bold)
-                                    Text(source.url).font(.caption).foregroundColor(.gray).lineLimit(1)
-                                }
-                                Spacer()
-                                
-                                if let status = status {
-                                    switch status {
-                                    case .success:
-                                        Image(systemName: "checkmark.circle.fill").font(.title2).foregroundColor(.green)
-                                    case .failure(let error):
-                                        Button(action: { selectedError = error; showingErrorAlert = true }) {
-                                            Image(systemName: "info.circle.fill").font(.title2).foregroundColor(.red)
-                                        }.buttonStyle(PlainButtonStyle())
-                                    }
-                                }
-                                
-                                if editMode == .inactive {
-                                    Toggle("", isOn: $source.isActive)
-                                        .labelsHidden()
-                                        .onChange(of: source.isActive) { _ in sourceManager.fetchApps() }
-                                }
-                            }
-
-                        if isSuccess, let count = status.flatMap({ if case .success(let c) = $0 { return c } else { return nil } }) {
-                            NavigationLink(destination: SourceDetailView(source: source, appCount: count)) {
-                                rowContent
-                            }
-                        } else {
-                            // Si no hay éxito, mostramos la fila sin navegación
-                            rowContent
-                        }
-                        .listRowBackground(Color.white.opacity(0.05))
-                        .onLongPressGesture { if sourceManager.sources.count >= 2 { withAnimation { editMode = .active } } }
+                        SourceRowView(
+                            source: $source,
+                            status: sourceManager.sourceSyncStatus[source.url],
+                            editMode: $editMode,
+                            selectedError: $selectedError,
+                            showingErrorAlert: $showingErrorAlert
+                        )
                     }
                     .onDelete { indexSet in
                         if let index = indexSet.first { sourceManager.deleteSource(sourceManager.sources[index]) }
@@ -135,6 +99,70 @@ struct SourcesView: View {
             Button("OK", role: .cancel) {}
         } message: { error in
             Text(error)
+        }
+    }
+}
+
+// MARK: - Source Row View (Refactored)
+struct SourceRowView: View {
+    @EnvironmentObject var sourceManager: SourceManager
+    @Binding var source: AltStoreSource
+    let status: SourceManager.SyncStatus?
+    @Binding var editMode: EditMode
+    @Binding var selectedError: String?
+    @Binding var showingErrorAlert: Bool
+
+    private var rowContent: some View {
+        HStack(spacing: 15) {
+            AsyncImage(url: URL(string: source.iconURL ?? "")) { phase in
+                if let image = phase.image { image.resizable().aspectRatio(contentMode: .fill) }
+                else { Image(systemName: "server.rack").foregroundColor(.gray) }
+            }
+            .frame(width: 40, height: 40)
+            .cornerRadius(8)
+            
+            VStack(alignment: .leading) {
+                Text(source.name).foregroundColor(.white).fontWeight(.bold)
+                Text(source.url).font(.caption).foregroundColor(.gray).lineLimit(1)
+            }
+            Spacer()
+            
+            if let status = status {
+                switch status {
+                case .success:
+                    Image(systemName: "checkmark.circle.fill").font(.title2).foregroundColor(.green)
+                case .failure(let error):
+                    Button(action: { selectedError = error; showingErrorAlert = true }) {
+                        Image(systemName: "info.circle.fill").font(.title2).foregroundColor(.red)
+                    }.buttonStyle(PlainButtonStyle())
+                }
+            }
+            
+            if editMode == .inactive {
+                Toggle("", isOn: $source.isActive)
+                    .labelsHidden()
+                    .onChange(of: source.isActive) { _ in sourceManager.fetchApps() }
+            }
+        }
+    }
+
+    var body: some View {
+        let isSuccess = status.map { if case .success = $0 { return true } else { return false } } ?? false
+        
+        Group {
+            if isSuccess, let count = status.flatMap({ if case .success(let c) = $0 { return c } else { return nil } }) {
+                NavigationLink(destination: SourceDetailView(source: source, appCount: count)) {
+                    rowContent
+                }
+            } else {
+                rowContent
+            }
+        }
+        .listRowBackground(Color.white.opacity(0.05))
+        .onLongPressGesture {
+            if sourceManager.sources.count >= 2 {
+                withAnimation { editMode = .active }
+            }
         }
     }
 }
