@@ -2,18 +2,29 @@
 //  CreditsView.swift
 //  SwiftStore
 //
-//  Version: 1.2
+//  Version: 1.3
 //  Changelog:
 //  - Version 1.0: Vista inicial de créditos con Render 3D animado.
 //  - Version 1.1: Removido crédito de asistencia de IA, añadida sección de información de la app, estado de licencia, estadísticas de sesión y botones de interacción social manteniendo intacta la animación 3D.
 //  - Version 1.2: Removidas métricas y botones extra. Añadidos links a GitHub y App (placeholder), acordeón vertical en gris y selector modal para licencias.
+//  - Version 1.3: Removida información del sistema. Tarjeta de desarrollador movida al fondo en estilo transparente/plano. Añadido Easter Egg de 5 toques en "elmendezz" para cambiar la animación del render 3D (Aleatorio, Logo Gemini, Esfera Fluida).
 //
 
 import SwiftUI
 
+enum AnimationType: String, CaseIterable, Identifiable {
+    case random = "Aleatorio (Original)"
+    case gemini = "Logo Gemini"
+    case fluidSphere = "Esfera Fluida"
+    
+    var id: String { self.rawValue }
+}
+
 struct CreditsView: View {
-    @State private var showingInfoAccordion = false
     @State private var showingLicensesSheet = false
+    @State private var showingAnimationSelector = false
+    @State private var developerTapCount = 0
+    @State private var selectedAnimation: AnimationType = .random
 
     var body: some View {
         ZStack {
@@ -27,68 +38,9 @@ struct CreditsView: View {
                         .foregroundColor(.white)
                         .padding(.top, 20)
                     
-                    // Render 3D exactamente igual e intacto
-                    AnimatedRender3D()
+                    // Render 3D dinámico según selección
+                    Render3DContainer(animationType: selectedAnimation)
                         .frame(width: 150, height: 150)
-                    
-                    // Tarjeta de Desarrollador
-                    LiquidGlassCard {
-                        VStack(spacing: 12) {
-                            Text("Desarrollado por")
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
-                            
-                            Text("elmendezz")
-                                .font(.system(size: 26, weight: .bold, design: .monospaced))
-                                .foregroundColor(.cyan)
-                        }
-                        .padding()
-                    }
-                    .padding(.horizontal, 25)
-                    
-                    // Acordeón vertical con letras grises
-                    VStack(alignment: .leading, spacing: 10) {
-                        Button(action: {
-                            withAnimation(.easeInOut) {
-                                showingInfoAccordion.toggle()
-                            }
-                        }) {
-                            HStack {
-                                Text("Información del sistema")
-                                    .font(.subheadline)
-                                    .foregroundColor(.gray)
-                                Spacer()
-                                Image(systemName: showingInfoAccordion ? "chevron.up" : "chevron.down")
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                            }
-                        }
-                        
-                        if showingInfoAccordion {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Plataforma: iOS / iPadOS")
-                                Text("Arquitectura: SwiftUI Native")
-                                Text("Motor: Swift 5.x")
-                                
-                                Button(action: {
-                                    showingLicensesSheet.toggle()
-                                }) {
-                                    Text("Licencias")
-                                        .underline()
-                                        .foregroundColor(.cyan)
-                                }
-                                .padding(.top, 4)
-                            }
-                            .font(.footnote)
-                            .foregroundColor(.gray)
-                            .padding(.top, 5)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                        }
-                    }
-                    .padding()
-                    .background(Color.white.opacity(0.04))
-                    .cornerRadius(12)
-                    .padding(.horizontal, 25)
                     
                     // Links directos
                     VStack(spacing: 12) {
@@ -109,6 +61,37 @@ struct CreditsView: View {
                             .font(.subheadline.weight(.medium))
                             .foregroundColor(.cyan)
                         }
+                        
+                        Button(action: {
+                            showingLicensesSheet.toggle()
+                        }) {
+                            HStack {
+                                Image(systemName: "doc.text.fill")
+                                Text("Licencias")
+                            }
+                            .font(.subheadline.weight(.medium))
+                            .foregroundColor(.gray)
+                        }
+                    }
+                    
+                    Spacer(minLength: 30)
+                    
+                    // Desarrollado por al final (Sin fondo, mismo tamaño visual de links + Easter Egg 5 taps)
+                    VStack(spacing: 4) {
+                        Text("Desarrollado por")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                        
+                        Text("elmendezz")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundColor(.cyan)
+                            .onTapGesture {
+                                developerTapCount += 1
+                                if developerTapCount >= 5 {
+                                    developerTapCount = 0
+                                    showingAnimationSelector = true
+                                }
+                            }
                     }
                     .padding(.bottom, 30)
                 }
@@ -116,6 +99,32 @@ struct CreditsView: View {
         }
         .sheet(isPresented: $showingLicensesSheet) {
             LicensesView()
+        }
+        .confirmationDialog("Seleccionar Animación 3D", isPresented: $showingAnimationSelector, titleVisibility: .visible) {
+            ForEach(AnimationType.allCases) { type in
+                Button(type.rawValue) {
+                    selectedAnimation = type
+                }
+            }
+            Button("Cancelar", role: .cancel) {}
+        }
+    }
+}
+
+// MARK: - Contenedor de Animaciones
+struct Render3DContainer: View {
+    let animationType: AnimationType
+
+    var body: some View {
+        Group {
+            switch animationType {
+            case .random:
+                AnimatedRender3D()
+            case .gemini:
+                GeminiLogoRender()
+            case .fluidSphere:
+                FluidSphereRender()
+            }
         }
     }
 }
@@ -172,7 +181,7 @@ struct LicenseCard: View {
     }
 }
 
-// MARK: - Animación de Formas Aleatorias para la Vista de Créditos (INTACTO)
+// MARK: - Animación 1: Formas Aleatorias (INTACTO)
 struct AnimatedRender3D: View {
     @State private var phase: Double = 0
     
@@ -202,6 +211,72 @@ struct AnimatedRender3D: View {
         .onAppear {
             withAnimation(.linear(duration: 8).repeatForever(autoreverses: true)) {
                 phase = .pi * 2
+            }
+        }
+    }
+}
+
+// MARK: - Animación 2: Logo Estilo Gemini (Sparkle / Starburst Neon)
+struct GeminiLogoRender: View {
+    @State private var pulse: CGFloat = 1.0
+    @State private var rotate: Double = 0
+    
+    var body: some View {
+        ZStack {
+            // Destello central Neón tipo Gemini
+            Image(systemName: "sparkles")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [.blue, .purple, .cyan, .white],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .scaleEffect(pulse)
+                .rotationEffect(.degrees(rotate))
+                .shadow(color: .cyan.opacity(0.8), radius: 15)
+                .shadow(color: .purple.opacity(0.6), radius: 25)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
+                pulse = 1.15
+            }
+            withAnimation(.linear(duration: 12).repeatForever(autoreverses: false)) {
+                rotate = 360
+            }
+        }
+    }
+}
+
+// MARK: - Animación 3: Esfera Fluida
+struct FluidSphereRender: View {
+    @State private var scale: CGFloat = 0.8
+    @State private var hueRotation: Double = 0
+    
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [.cyan, .blue, .purple, .black],
+                        center: .center,
+                        startRadius: 10,
+                        endRadius: 75
+                    )
+                )
+                .scaleEffect(scale)
+                .hueRotation(.degrees(hueRotation))
+                .blur(radius: 4)
+                .shadow(color: .blue.opacity(0.7), radius: 20)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 3).repeatForever(autoreverses: true)) {
+                scale = 1.1
+            }
+            withAnimation(.linear(duration: 6).repeatForever(autoreverses: false)) {
+                hueRotation = 360
             }
         }
     }
