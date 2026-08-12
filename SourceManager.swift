@@ -174,12 +174,12 @@ class SourceManager: NSObject, ObservableObject, URLSessionDownloadDelegate {
             log("✅ Decodificación exitosa: \(feed.apps.count) apps encontradas en '\(sourceName)'.")
             
             // Comprobar si la fuente ya existe (en el hilo principal para acceso seguro a `sources`)
-            DispatchQueue.main.sync {
+            try DispatchQueue.main.sync {
                 if self.sources.contains(where: { $0.url == url }) {
                     self.log("⚠️ Error: Este repositorio ya existe.")
                     self.repoUpdateStatus = "La fuente ya existe"
                     self.showSourceExistsAlert = true
-                    throw NSError(domain: "SourceManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Duplicate source"])
+                    throw NSError(domain: "SourceManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "La fuente ya existe."])
                 }
             }
             
