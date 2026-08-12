@@ -127,6 +127,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     @AppStorage("amoledPitchBlack") var amoledPitchBlack: Bool = true
     @AppStorage("downloadFolder") var downloadFolder: String = "Documentos"
     @AppStorage("enableAnimatedBackground") var enableAnimatedBackground: Bool = true
+    @AppStorage("enableCreditsGlow") var enableCreditsGlow: Bool = false
 
     // Estado de interfaz
     @Published var searchText: String = ""
@@ -838,6 +839,7 @@ struct SettingsView: View {
                 Section(header: Text("Apariencia").foregroundColor(.cyan)) {
                     Toggle("Modo AMOLED (Pitch Black)", isOn: $viewModel.amoledPitchBlack).toggleStyle(SwitchToggleStyle(tint: .cyan))
                     Toggle("Fondo Animado (Burbujas)", isOn: $viewModel.enableAnimatedBackground).toggleStyle(SwitchToggleStyle(tint: .cyan))
+                    Toggle("Efecto Glow en Créditos", isOn: $viewModel.enableCreditsGlow).toggleStyle(SwitchToggleStyle(tint: .cyan))
                 }.listRowBackground(Color.white.opacity(0.08))
                 .onTapGesture {
                     secretTapCount += 1
@@ -894,5 +896,17 @@ extension Color {
         default: (a, r, g, b) = (1, 1, 1, 0)
         }
         self.init(.sRGB, red: Double(r) / 255, green: Double(g) / 255, blue:  Double(b) / 255, opacity: Double(a) / 255)
+    }
+}
+
+extension View {
+    /// Aplica un modificador condicionalmente.
+    @ViewBuilder
+    func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
     }
 }
