@@ -147,7 +147,6 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     private var downloadSession: URLSession!
     private var downloadTasks: [String: URLSessionDownloadTask] = [:]
     private var taskAppMap: [Int: AltStoreApp] = [:]
-    private var repoDownloadTaskIdentifier: Int?
     
     // Variables de Undo
     @Published var recentlyDeletedSources: [AltStoreSource] = []
@@ -192,20 +191,21 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         DispatchQueue.main.async {
             self.isUpdatingRepos = true
             self.repoUpdateStatus = "Descargando JSON del nuevo repositorio..."
-            self.repoDownloadProgress = 0.01 // Iniciar progreso visual
+            self.repoDownloadProgress = 0.0 // El progreso no está disponible con URLSessionDataTask
         }
         
-        // Usar URLSessionDownloadTask para obtener el progreso
-        let task = downloadSession.downloadTask(with: validURL) { [weak self] tempURL, response, error in
-            // Este bloque se ejecuta al finalizar la descarga
+        // Se usa URLSessionDataTask con un timeout para evitar bloqueos.
+        // No se puede mostrar el progreso de descarga con este método.
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30.0 // 30 segundos de timeout
+        let session = URLSession(configuration: config)
+        
+        session.dataTask(with: validURL) { [weak self] data, response, error in
             guard let self = self else { return }
-            self.repoDownloadTaskIdentifier = nil // Limpiar el identificador
-            self.processDownloadedRepo(url: url, tempURL: tempURL, error: error)
-        }
-        repoDownloadTaskIdentifier = task.taskIdentifier
-        task.resume()
+            self.processDownloadedRepo(url: url, data: data, error: error)
+        }.resume()
     }
-    
+
     func fetchApps() {
         let activeSources = sources.filter { $0.isActive }
         if activeSources.isEmpty {
@@ -267,7 +267,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         }
     }
     
-    private func processDownloadedRepo(url: String, tempURL: URL?, error: Error?) {
+    private func processDownloadedRepo(url: String, data: Data?, error: Error?) {
         if let error = error {
             let errorMessage: String
             if let urlError = error as? URLError, urlError.code == .cannotFindHost {
@@ -281,7 +281,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             return
         }
         
-        guard let tempURL = tempURL, let data = try? Data(contentsOf: tempURL) else {
+        guard let data = data else {
             finishUpdatingRepos(message: "Error: No se recibió información del servidor.", delay: 3.5)
             return
         }
@@ -304,8 +304,6 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             var errorMessage = "Error de formato JSON: "
             switch decodingError {
             case .keyNotFound(let key, let context): errorMessage += "Falta la clave '\(key.stringValue)' en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
-            case .typeMismatch(_, let context): errorMessage += "Tipo de dato incorrecto en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
-            case .valueNotFound(_, let context): errorMessage += "Valor nulo inesperado en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
             case .typeMismatch(_, let context): errorMessage += "Tipo de dato incorrecto en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
             case .valueNotFound(_, let context): errorMessage += "Valor nulo inesperado en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
             case .dataCorrupted(let context): errorMessage += "El JSON está corrupto. \(context.debugDescription)"
@@ -432,26 +430,15 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     }
     
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        // Error en la descarga de un repositorio
-        if let error = error, task.taskIdentifier == repoDownloadTaskIdentifier {
-            processDownloadedRepo(url: "", tempURL: nil, error: error)
-            return
-        }
-        
-        // Error en la descarga de una app
+        // El error en la descarga de un repositorio se maneja en el closure de `addSource`.
+        // Error en la descarga de una app:
         if let _ = error, let app = taskAppMap[task.taskIdentifier] {
             finishDownloadProcessing(for: app.bundleIdentifier)
         }
     }
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        // Si es la descarga de un repo
-        if downloadTask.taskIdentifier == repoDownloadTaskIdentifier, totalBytesExpectedToWrite > 0 {
-            let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
-            DispatchQueue.main.async { self.repoDownloadProgress = progress }
-            return // Es una descarga de repo, no hacemos más nada aquí.
-        }
-        
+        // El progreso para la descarga de repositorios ya no se maneja aquí.
         // Si es una descarga de app
         guard let app = taskAppMap[downloadTask.taskIdentifier], totalBytesExpectedToWrite > 0 else { return }
         let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
