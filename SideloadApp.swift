@@ -18,7 +18,6 @@ struct SwiftStoreApp: App {
 // MARK: - Shake Detection Logic
 extension Notification.Name {
     static let shakeToUndo = Notification.Name("shakeToUndo")
-    static let doubleTapStoreTab = Notification.Name("doubleTapStoreTab")
 }
 
 struct ShakeDetector: UIViewControllerRepresentable {
@@ -540,45 +539,54 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
 struct MainTabView: View {
     @StateObject private var viewModel = AppViewModel()
     @StateObject private var scrollObserver = ScrollObserver()
-    @State private var selectedTab: Int = 0 // Controla la pestaña seleccionada
-    @State private var lastStoreTabTapTime: Date? // Para detectar doble toque en la pestaña de la tienda
+    @State private var tabSelection: Int = 0
+    @State private var storeViewId = UUID() // Para hacer pop-to-root en la vista de la tienda
     @State private var showingLogView = false
+
+    // Binding personalizado para detectar toques en la pestaña ya seleccionada.
+    private var selectedTab: Binding<Int> {
+        Binding(
+            get: { tabSelection },
+            set: { newValue in
+                if newValue == tabSelection {
+                    // Si el usuario toca la misma pestaña, hacemos pop-to-root.
+                    // Implementado para la pestaña de la tienda.
+                    if newValue == 0 {
+                        storeViewId = UUID()
+                    }
+                }
+                tabSelection = newValue
+            }
+        )
+    }
     
     var body: some View {
         ZStack(alignment: .bottom) {
-            TabView(selection: $selectedTab) { // Usamos la selección controlada
+            TabView(selection: selectedTab) { // Usamos el binding personalizado
                 NavigationView { StoreView() }
+                    .id(storeViewId) // ID para forzar la recreación de la vista
                     .navigationViewStyle(.stack)
                     .environmentObject(viewModel)
                     .tabItem { Label("Tienda", systemImage: "square.stack.3d.down.right.fill") }
+                    .tag(0)
                 
                 NavigationView { SourcesView() }
                     .navigationViewStyle(.stack)
                     .environmentObject(viewModel)
                     .tabItem { Label("Fuentes", systemImage: "link") }
+                    .tag(1)
                 
                 NavigationView { FilesView() }
                     .navigationViewStyle(.stack)
                     .environmentObject(viewModel)
                     .tabItem { Label("Archivos", systemImage: "folder.fill") }
+                    .tag(2)
                 
                 NavigationView { SettingsView() }
                     .navigationViewStyle(.stack)
                     .environmentObject(viewModel)
                     .tabItem { Label("Ajustes", systemImage: "gearshape.fill") }
-            }
-            .onChange(of: selectedTab) { newTab in
-                if newTab == 0 { // Si la pestaña de la tienda (índice 0) es seleccionada
-                    if let lastTapTime = lastStoreTabTapTime, Date().timeIntervalSince(lastTapTime) < 0.3 {
-                        // Doble toque detectado en la pestaña de la tienda
-                        NotificationCenter.default.post(name: .doubleTapStoreTab, object: nil)
-                        lastStoreTabTapTime = nil // Reiniciar para evitar triple toques
-                    } else {
-                        lastStoreTabTapTime = Date()
-                    }
-                } else {
-                    lastStoreTabTapTime = nil // Reiniciar si se selecciona otra pestaña
-                }
+                    .tag(3)
             }
             .accentColor(.cyan)
             .onAppear {

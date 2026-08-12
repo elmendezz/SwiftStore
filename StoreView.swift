@@ -4,7 +4,6 @@ import SwiftUI
 struct StoreView: View {
     @EnvironmentObject var viewModel: AppViewModel
     @EnvironmentObject var scrollObserver: ScrollObserver
-    @FocusState private var isSearchFocused: Bool // Para controlar el foco del buscador
     
     var filteredApps: [AltStoreApp] {
         viewModel.searchText.isEmpty ? viewModel.apps : viewModel.apps.filter { $0.name.localizedCaseInsensitiveContains(viewModel.searchText) }
@@ -17,28 +16,6 @@ struct StoreView: View {
 
                 ScrollView {
                     VStack(spacing: 15) {
-                        // Buscador con efecto Liquid Glass y botón de limpiar
-                        LiquidGlassCard {
-                            HStack {
-                                Image(systemName: "magnifyingglass").foregroundColor(.gray)
-                                TextField("Buscar aplicaciones...", text: $viewModel.searchText)
-                                    .foregroundColor(.white)
-                                    .focused($isSearchFocused) // Asocia el foco al estado
-                                
-                                if !viewModel.searchText.isEmpty {
-                                    Button(action: {
-                                        viewModel.searchText = ""
-                                        isSearchFocused = false // Quita el foco y cierra el teclado
-                                    }) {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .foregroundColor(.gray)
-                                    }
-                                }
-                            }
-                        }
-                        .padding([.horizontal, .top])
-                        .id("topOfScroll") // ID para poder hacer scroll hasta aquí
-                        
                         if filteredApps.isEmpty {
                             VStack(spacing: 10) {
                                 Image(systemName: "square.grid.2x2").font(.system(size: 50)).foregroundColor(.gray)
@@ -51,12 +28,6 @@ struct StoreView: View {
                                 }
                             }.padding(.horizontal).padding(.bottom, 20)
                         }
-                    }
-                    .onTapGesture(count: 2) { // Doble tap en el contenido del scroll
-                        withAnimation {
-                            proxy.scrollTo("topOfScroll", anchor: .top)
-                        }
-                        isSearchFocused = true // Enfoca el buscador
                     }
                 }
                 .background(
@@ -72,12 +43,7 @@ struct StoreView: View {
             .coordinateSpace(name: "scroll")
             .onPreferenceChange(ScrollOffsetPreferenceKey.self, perform: scrollObserver.updateVelocity(from:))
         }
-        .onReceive(NotificationCenter.default.publisher(for: .doubleTapStoreTab)) { _ in
-            // Cuando se detecta un doble toque en la pestaña de la tienda
-            withAnimation {
-                isSearchFocused = true
-            }
-        }
+        .searchable(text: $viewModel.searchText, prompt: "Buscar aplicaciones...")
         .navigationTitle("SwiftStore")
     }
 }
