@@ -205,18 +205,19 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             }
             
             do {
+                // Decodificar en segundo plano para no bloquear la UI
                 let feed = try JSONDecoder().decode(AltStoreFeed.self, from: data)
+                let sourceName = feed.name ?? "Repositorio Nuevo"
+                let newSource = AltStoreSource(name: sourceName, url: url, iconURL: feed.iconURL, isActive: true)
+
                 DispatchQueue.main.async {
-                    let sourceName = feed.name ?? "Repositorio Nuevo"
                     self.repoUpdateStatus = "Instalando Repo: \(sourceName)"
-                    let newSource = AltStoreSource(name: sourceName, url: url, iconURL: feed.iconURL, isActive: true)
-                    
-                    if !self.sources.contains(where: { $0.url == url }) {
-                        self.sources.append(newSource)
-                        self.fetchApps()
-                    } else {
+                    if self.sources.contains(where: { $0.url == url }) {
                         self.finishUpdatingRepos(message: "Error: Este repositorio ya existe.")
+                        return
                     }
+                    self.sources.append(newSource)
+                    self.fetchApps() // fetchApps ya está optimizado
                 }
             } catch let decodingError as DecodingError {
                 var errorMessage = "Error de formato JSON: "
@@ -249,10 +250,11 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         DispatchQueue.main.async {
             self.isUpdatingRepos = true
             self.repoUpdateStatus = "Sincronizando \(activeSources.count) fuentes..."
-            self.apps.removeAll()
         }
         
         let group = DispatchGroup()
+        var allNewApps: [AltStoreApp] = []
+        let appProcessingQueue = DispatchQueue(label: "com.swiftstore.app-processing", qos: .userInitiated)
         
         for source in activeSources {
             guard let url = URL(string: source.url) else { continue }
@@ -269,14 +271,14 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
                 
                 if let data = data {
                     do {
+                        // 1. Decodificar en el hilo de URLSession (background)
                         let feed = try JSONDecoder().decode(AltStoreFeed.self, from: data)
                         DispatchQueue.main.async {
                             self.repoUpdateStatus = "Procesando apps de: \(feed.name ?? source.name)"
-                            for newApp in feed.apps {
-                                if !self.apps.contains(where: { $0.bundleIdentifier == newApp.bundleIdentifier }) {
-                                    self.apps.append(newApp)
-                                }
-                            }
+                        }
+                        // 2. Procesar y acumular en un hilo dedicado para no bloquear la red ni la UI
+                        appProcessingQueue.sync {
+                            allNewApps.append(contentsOf: feed.apps)
                         }
                     } catch {
                         DispatchQueue.main.async { self.repoUpdateStatus = "JSON corrupto en: \(source.name)" }
@@ -286,6 +288,9 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         }
         
         group.notify(queue: .main) {
+            // 3. Una vez todas las fuentes han sido procesadas, actualiza la UI una sola vez.
+            let uniqueApps = Array(Set(allNewApps))
+            self.apps = uniqueApps.sorted { $0.name < $1.name }
             self.finishUpdatingRepos(message: "Sincronización Completada")
         }
     }
