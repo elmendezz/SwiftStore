@@ -7,7 +7,7 @@
 //  - Version 1.0: Vista inicial de créditos con Render 3D animado.
 //  - Version 1.1: Removido crédito de asistencia de IA, añadida sección de información de la app, estado de licencia, estadísticas de sesión y botones de interacción social manteniendo intacta la animación 3D.
 //  - Version 1.2: Removidas métricas y botones extra. Añadidos links a GitHub y App (placeholder), acordeón vertical en gris y selector modal para licencias.
-//  - Version 1.3: Removida información del sistema, movida la sección de desarrollado por elmendezz al final de la vista sin tarjeta de fondo y compactado el diseño hacia la parte inferior.
+//  - Version 1.3: Removida la sección de información del sistema. Reposicionada la tarjeta de desarrollador hacia la parte inferior sin fondo, ajustada al mismo ancho de los botones de GitHub y colocada cerca de la parte inferior.
 //
 
 import SwiftUI
@@ -19,19 +19,24 @@ struct CreditsView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             
-            ScrollView {
-                VStack(spacing: 20) {
-                    Text("Créditos")
-                        .font(.largeTitle)
-                        .bold()
-                        .foregroundColor(.white)
-                        .padding(.top, 20)
-                    
-                    // Render 3D exactamente igual e intacto
-                    AnimatedRender3D()
-                        .frame(width: 150, height: 150)
-                    
-                    // Links directos y botón de Licencias
+            VStack(spacing: 0) {
+                Text("Créditos")
+                    .font(.largeTitle)
+                    .bold()
+                    .foregroundColor(.white)
+                    .padding(.top, 20)
+                
+                Spacer()
+                
+                // Render 3D exactamente igual e intacto
+                AnimatedRender3D()
+                    .frame(width: 150, height: 150)
+                
+                Spacer()
+                
+                // Sección inferior agrupada cerca del dock/bottom
+                VStack(spacing: 16) {
+                    // Links directos
                     VStack(spacing: 12) {
                         Link(destination: URL(string: "https://github.com/elmendezz")!) {
                             HStack {
@@ -50,31 +55,30 @@ struct CreditsView: View {
                             .font(.subheadline.weight(.medium))
                             .foregroundColor(.cyan)
                         }
-
+                        
                         Button(action: {
                             showingLicensesSheet.toggle()
                         }) {
                             Text("Licencias")
                                 .font(.subheadline.weight(.medium))
                                 .underline()
-                                .foregroundColor(.gray)
+                                .foregroundColor(.cyan)
                         }
                     }
-                    .padding(.top, 10)
-
-                    // Sección Desarrollado por (sin tarjeta de fondo, al final de la app)
+                    
+                    // Tarjeta de Desarrollador (sin fondo, tamaño alineado con los links)
                     VStack(spacing: 4) {
                         Text("Desarrollado por")
-                            .font(.caption)
+                            .font(.subheadline)
                             .foregroundColor(.gray)
                         
                         Text("elmendezz")
-                            .font(.subheadline.weight(.bold))
+                            .font(.system(size: 24, weight: .bold, design: .monospaced))
                             .foregroundColor(.cyan)
                     }
-                    .padding(.top, 15)
-                    .padding(.bottom, 20)
+                    .padding(.top, 4)
                 }
+                .padding(.bottom, 20)
             }
         }
         .sheet(isPresented: $showingLicensesSheet) {
