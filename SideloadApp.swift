@@ -103,12 +103,21 @@ struct AltStoreFeed: Codable {
         self.name = try container.decodeIfPresent(String.self, forKey: .name)
         self.iconURL = try container.decodeIfPresent(String.self, forKey: .iconURL)
 
-        var appsContainer = try container.nestedUnkeyedContainer(forKey: .apps)
+        var appsContainer = try container.nestedUnkeyedContainer(forKey: .apps)        
         var decodedApps: [AltStoreApp] = []
 
         while !appsContainer.isAtEnd {
-            if let app = try? appsContainer.decode(AltStoreApp.self) {
+            // Usamos un bloque do-catch para decodificar cada app individualmente.
+            // Si una app falla, la saltamos en lugar de fallar toda la decodificación.
+            do {
+                let app = try appsContainer.decode(AltStoreApp.self)
                 decodedApps.append(app)
+            } catch {
+                // Si una app no se puede decodificar, debemos avanzar el índice del
+                // contenedor para evitar un bucle infinito. `superDecoder()` hace
+                // exactamente eso: consume el siguiente elemento y lo devuelve como un
+                // nuevo decodificador, que podemos ignorar de forma segura.
+                _ = try? appsContainer.superDecoder()
             }
         }
         self.apps = decodedApps
