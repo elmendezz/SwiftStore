@@ -2,6 +2,7 @@ import SwiftUI
 
 // MARK: - Settings View
 struct SettingsView: View {
+    @EnvironmentObject var fileManager: AppFileManager
     @EnvironmentObject var viewModel: AppViewModel
     @State private var randomImageName: String = ""
     @State private var secretTapCount = 0
@@ -28,7 +29,11 @@ struct SettingsView: View {
                 Section(header: Text("Archivos").foregroundColor(.cyan)) {
                     Picker("Carpeta de Descargas", selection: $viewModel.downloadFolder) {
                         ForEach(folders, id: \.self) { folder in Text(folder).tag(folder) }
-                    }.pickerStyle(SegmentedPickerStyle()).padding(.vertical, 5)
+                    }
+                    .pickerStyle(SegmentedPickerStyle()).padding(.vertical, 5)
+                    .onChange(of: viewModel.downloadFolder) { newValue in
+                        fileManager.downloadFolder = newValue
+                    }
                 }.listRowBackground(Color.white.opacity(0.08))
 
                 Section(header: Text("Apariencia").foregroundColor(.cyan)) {

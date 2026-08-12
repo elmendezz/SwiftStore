@@ -3,10 +3,12 @@ import SwiftUI
 // MARK: - Store View
 struct StoreView: View {
     @EnvironmentObject var viewModel: AppViewModel
+    @EnvironmentObject var sourceManager: SourceManager
     @EnvironmentObject var scrollObserver: ScrollObserver
     
     var filteredApps: [AltStoreApp] {
-        viewModel.searchText.isEmpty ? viewModel.apps : viewModel.apps.filter { $0.name.localizedCaseInsensitiveContains(viewModel.searchText) }
+        let apps = sourceManager.apps
+        return viewModel.searchText.isEmpty ? apps : apps.filter { $0.name.localizedCaseInsensitiveContains(viewModel.searchText) }
     }
     
     var body: some View {
@@ -85,7 +87,8 @@ struct AppCardView: View {
 }
 
 struct AppDetailView: View {
-    @EnvironmentObject var viewModel: AppViewModel
+    @EnvironmentObject var downloadManager: DownloadManager
+    @EnvironmentObject var fileManager: AppFileManager
     let app: AltStoreApp
     var body: some View {
         ZStack {
@@ -112,8 +115,8 @@ struct AppDetailView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Button(action: { viewModel.deleteAppFile(app: app); viewModel.startDownload(app: app) }) { Label("Volver a descargar", systemImage: "arrow.clockwise.icloud") }
-                    Button(action: { viewModel.deleteAppFile(app: app) }) { Label("Eliminar", systemImage: "trash") }
+                    Button(action: { fileManager.deleteAppFile(app: app); downloadManager.startDownload(app: app) }) { Label("Volver a descargar", systemImage: "arrow.clockwise.icloud") }
+                    Button(action: { fileManager.deleteAppFile(app: app) }) { Label("Eliminar", systemImage: "trash") }
                 } label: { Image(systemName: "ellipsis").foregroundColor(.white).font(.headline) } // Icono nativo de 3 puntos
             }
         }
@@ -122,22 +125,23 @@ struct AppDetailView: View {
 
 // MARK: - Download Indicator
 struct DownloadIndicator: View {
-    @EnvironmentObject var viewModel: AppViewModel
+    @EnvironmentObject var downloadManager: DownloadManager
+    @EnvironmentObject var fileManager: AppFileManager
     let app: AltStoreApp
     var isLarge: Bool = false
     
     var body: some View {
-        let isDownloading = viewModel.isDownloading[app.bundleIdentifier] ?? false
-        let isQueued = viewModel.downloadQueue.contains(app)
-        let progress = viewModel.downloadProgress[app.bundleIdentifier] ?? 0.0
-        let isDownloaded = viewModel.downloadedApps.contains(app.bundleIdentifier)
+        let isDownloading = downloadManager.isDownloading[app.bundleIdentifier] ?? false
+        let isQueued = downloadManager.downloadQueue.contains(app)
+        let progress = downloadManager.downloadProgress[app.bundleIdentifier] ?? 0.0
+        let isDownloaded = fileManager.downloadedApps.contains(app.bundleIdentifier)
         
         let size: CGFloat = isLarge ? 50 : 32
         let fontSize: CGFloat = isLarge ? 30 : 28
         
         ZStack {
             if isDownloading {
-                Button(action: { viewModel.cancelDownload(app: app) }) {
+                Button(action: { downloadManager.cancelDownload(app: app) }) {
                     ZStack {
                         Circle().stroke(Color.white.opacity(0.2), lineWidth: 3).frame(width: size, height: size)
                         Circle().trim(from: 0.0, to: CGFloat(progress)).stroke(Color.cyan, style: StrokeStyle(lineWidth: 3, lineCap: .round)).rotationEffect(.degrees(-90)).frame(width: size, height: size)
@@ -145,13 +149,13 @@ struct DownloadIndicator: View {
                     }
                 }
             } else if isQueued {
-                Button(action: { viewModel.cancelDownload(app: app) }) {
+                Button(action: { downloadManager.cancelDownload(app: app) }) {
                     Image(systemName: "clock.fill").font(.system(size: fontSize)).foregroundColor(.orange)
                 }
             } else if isDownloaded {
                 Image(systemName: "checkmark.circle.fill").font(.system(size: fontSize)).foregroundColor(.green)
             } else {
-                Button(action: { viewModel.startDownload(app: app) }) {
+                Button(action: { downloadManager.startDownload(app: app) }) {
                     Image(systemName: "arrow.down.circle.fill").font(.system(size: fontSize)).foregroundColor(.cyan)
                 }
             }

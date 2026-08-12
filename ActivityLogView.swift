@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Una vista que muestra un registro en tiempo real de las operaciones de red del AppViewModel.
 struct ActivityLogView: View {
-    @EnvironmentObject var viewModel: AppViewModel
+    @EnvironmentObject var sourceManager: SourceManager
     @Environment(\.dismiss) var dismiss
 
     var body: some View {
@@ -14,8 +14,8 @@ struct ActivityLogView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 8) {
-                            ForEach(viewModel.activityLog.indices, id: \.self) { index in
-                                Text(viewModel.activityLog[index])
+                            ForEach(sourceManager.activityLog.indices, id: \.self) { index in
+                                Text(sourceManager.activityLog[index])
                                     .font(.system(size: 12, design: .monospaced))
                                     .foregroundColor(.white)
                                     .padding(.horizontal)
@@ -24,9 +24,9 @@ struct ActivityLogView: View {
                         }
                         .padding(.vertical)
                     }
-                    .onChange(of: viewModel.activityLog) { _ in
+                    .onChange(of: sourceManager.activityLog) { _ in
                         // Asegura que la vista siempre muestre el último registro.
-                        if let lastIndex = viewModel.activityLog.indices.last {
+                        if let lastIndex = sourceManager.activityLog.indices.last {
                             withAnimation {
                                 proxy.scrollTo(lastIndex, anchor: .bottom)
                             }
@@ -39,7 +39,7 @@ struct ActivityLogView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Limpiar") {
-                        viewModel.activityLog.removeAll()
+                        sourceManager.activityLog.removeAll()
                     }
                     .foregroundColor(.cyan)
                 }

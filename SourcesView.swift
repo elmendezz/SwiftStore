@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Sources View
 struct SourcesView: View {
-    @EnvironmentObject var viewModel: AppViewModel
+    @EnvironmentObject var sourceManager: SourceManager
     @State private var newRepoURL: String = ""
     @State private var editMode: EditMode = .inactive
     @State private var selection = Set<UUID>()
@@ -18,7 +18,7 @@ struct SourcesView: View {
                             TextField("URL (http://... o https://...)", text: $newRepoURL)
                                 .padding(12).background(Color.white.opacity(0.08)).cornerRadius(8).foregroundColor(.white).keyboardType(.URL).autocapitalization(.none)
                             
-                            Button(action: { viewModel.addSource(url: newRepoURL); newRepoURL = "" }) {
+                            Button(action: { sourceManager.addSource(url: newRepoURL); newRepoURL = "" }) {
                                 Text("Añadir Repositorio").fontWeight(.bold).foregroundColor(.black).frame(maxWidth: .infinity).padding(12).background(Color.cyan).cornerRadius(10)
                             }
                         }
@@ -26,7 +26,7 @@ struct SourcesView: View {
                 }
                 
                 List(selection: $selection) {
-                    ForEach($viewModel.sources) { $source in
+                    ForEach($sourceManager.sources) { $source in
                         HStack(spacing: 15) {
                             AsyncImage(url: URL(string: source.iconURL ?? "")) { phase in
                                 if let image = phase.image { image.resizable().aspectRatio(contentMode: .fill) }
@@ -42,14 +42,14 @@ struct SourcesView: View {
                             if editMode == .inactive {
                                 Toggle("", isOn: $source.isActive)
                                     .labelsHidden()
-                                    .onChange(of: source.isActive) { _ in viewModel.fetchApps() }
+                                    .onChange(of: source.isActive) { _ in sourceManager.fetchApps() }
                             }
                         }
                         .listRowBackground(Color.white.opacity(0.05))
-                        .onLongPressGesture { if viewModel.sources.count >= 2 { withAnimation { editMode = .active } } }
+                        .onLongPressGesture { if sourceManager.sources.count >= 2 { withAnimation { editMode = .active } } }
                     }
                     .onDelete { indexSet in
-                        if let index = indexSet.first { viewModel.deleteSource(viewModel.sources[index]) }
+                        if let index = indexSet.first { sourceManager.deleteSource(sourceManager.sources[index]) }
                     }
                 }
                 .environment(\.editMode, $editMode)
@@ -61,11 +61,11 @@ struct SourcesView: View {
                     Spacer()
                     HStack(spacing: 20) {
                         Button(role: .destructive, action: {
-                            let sourcesToDelete = viewModel.sources.filter { selection.contains($0.id) }
-                            viewModel.recentlyDeletedSources = sourcesToDelete
-                            viewModel.sources.removeAll { selection.contains($0.id) }
-                            viewModel.fetchApps()
-                            viewModel.showUndoAlert = true
+                            let sourcesToDelete = sourceManager.sources.filter { selection.contains($0.id) }
+                            sourceManager.recentlyDeletedSources = sourcesToDelete
+                            sourceManager.sources.removeAll { selection.contains($0.id) }
+                            sourceManager.fetchApps()
+                            sourceManager.showUndoAlert = true
                             selection.removeAll()
                             editMode = .inactive
                         }) {
@@ -73,8 +73,8 @@ struct SourcesView: View {
                         }.disabled(selection.isEmpty)
                         
                         Button(action: {
-                            for i in viewModel.sources.indices { if selection.contains(viewModel.sources[i].id) { viewModel.sources[i].isActive.toggle() } }
-                            viewModel.fetchApps()
+                            for i in sourceManager.sources.indices { if selection.contains(sourceManager.sources[i].id) { sourceManager.sources[i].isActive.toggle() } }
+                            sourceManager.fetchApps()
                             selection.removeAll()
                             editMode = .inactive
                         }) {
@@ -92,7 +92,7 @@ struct SourcesView: View {
         .navigationTitle("Fuentes")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { viewModel.fetchApps() }) { Image(systemName: "arrow.triangle.2.circlepath").foregroundColor(.cyan) }
+                Button(action: { sourceManager.fetchApps() }) { Image(systemName: "arrow.triangle.2.circlepath").foregroundColor(.cyan) }
             }
         }
     }

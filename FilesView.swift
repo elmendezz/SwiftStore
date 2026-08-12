@@ -2,18 +2,18 @@ import SwiftUI
 
 // MARK: - Files Manager View
 struct FilesView: View {
-    @EnvironmentObject var viewModel: AppViewModel
+    @EnvironmentObject var fileManager: AppFileManager
     var body: some View {
         ZStack {
             BlobBackgroundView()
-            if viewModel.downloadedFiles.isEmpty {
+            if fileManager.downloadedFiles.isEmpty {
                 VStack(spacing: 15) {
                     Image(systemName: "folder.badge.questionmark").font(.system(size: 60)).foregroundColor(.gray)
                     Text("No hay archivos descargados").foregroundColor(.gray)
                 }
             } else {
                 List {
-                    ForEach(viewModel.downloadedFiles, id: \.self) { fileURL in
+                    ForEach(fileManager.downloadedFiles, id: \.self) { fileURL in
                         HStack {
                             Image(systemName: "doc.zipper").font(.system(size: 30)).foregroundColor(.cyan).padding(.trailing, 8)
                             VStack(alignment: .leading, spacing: 4) {
@@ -25,15 +25,15 @@ struct FilesView: View {
                             }
                         }.padding(.vertical, 4).listRowBackground(Color.white.opacity(0.05))
                     }.onDelete { indexSet in
-                        indexSet.forEach { index in try? FileManager.default.removeItem(at: viewModel.downloadedFiles[index]) }
-                        viewModel.refreshFilesList()
-                        viewModel.checkDownloadedFiles()
+                        indexSet.forEach { index in try? Foundation.FileManager.default.removeItem(at: fileManager.downloadedFiles[index]) }
+                        fileManager.refreshFilesList()
+                        fileManager.checkDownloadedFiles()
                     }
                 }.hideListBackground()
             }
         }
         .navigationTitle("Archivos")
-        .onAppear { viewModel.refreshFilesList() }
+        .onAppear { fileManager.refreshFilesList() }
     }
     
     private func formatBytes(_ bytes: Int64) -> String {
