@@ -18,6 +18,7 @@ struct SwiftStoreApp: App {
 // MARK: - Shake Detection Logic
 extension Notification.Name {
     static let shakeToUndo = Notification.Name("shakeToUndo")
+    static let doubleTapStoreTab = Notification.Name("doubleTapStoreTab")
 }
 
 struct ShakeDetector: UIViewControllerRepresentable {
