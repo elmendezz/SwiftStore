@@ -137,6 +137,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     // Estatus de Actualización de Fuentes
     @Published var isUpdatingRepos: Bool = false
     @Published var repoUpdateStatus: String = ""
+    @Published var repoDownloadProgress: Double = 0.0
     
     // Cola de Descargas
     @Published var downloadProgress: [String: Double] = [:]
@@ -145,6 +146,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     private var currentDownload: AltStoreApp?
     private var downloadTasks: [String: URLSessionDownloadTask] = [:]
     private var taskAppMap: [Int: AltStoreApp] = [:]
+    private var repoDownloadTaskIdentifier: Int?
     
     // Variables de Undo
     @Published var recentlyDeletedSources: [AltStoreSource] = []
@@ -183,61 +185,19 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         DispatchQueue.main.async {
             self.isUpdatingRepos = true
             self.repoUpdateStatus = "Descargando JSON del nuevo repositorio..."
+            self.repoDownloadProgress = 0.01 // Iniciar progreso visual
         }
         
-        URLSession.shared.dataTask(with: validURL) { [weak self] data, response, error in
+        // Usar URLSessionDownloadTask para obtener el progreso
+        let session = URLSession(configuration: .default, delegate: self, delegateQueue: OperationQueue.main)
+        let task = session.downloadTask(with: validURL) { [weak self] tempURL, response, error in
+            // Este bloque se ejecuta al finalizar la descarga
             guard let self = self else { return }
-            
-            if let error = error {
-                let errorMessage: String
-                if let urlError = error as? URLError, urlError.code == .cannotFindHost {
-                    errorMessage = "Error: No se pudo encontrar el host. Revisa la URL."
-                } else {
-                    errorMessage = "Fallo de red: \(error.localizedDescription)"
-                }
-                DispatchQueue.main.async { self.finishUpdatingRepos(message: errorMessage, delay: 3.5) }
-                return
-            }
-            
-            guard let data = data else {
-                DispatchQueue.main.async { self.finishUpdatingRepos(message: "Error: No se recibió información del servidor.", delay: 3.5) }
-                return
-            }
-            
-            do {
-                // Decodificar en segundo plano para no bloquear la UI
-                let feed = try JSONDecoder().decode(AltStoreFeed.self, from: data)
-                let sourceName = feed.name ?? "Repositorio Nuevo"
-                let newSource = AltStoreSource(name: sourceName, url: url, iconURL: feed.iconURL, isActive: true)
-
-                DispatchQueue.main.async {
-                    self.repoUpdateStatus = "Instalando Repo: \(sourceName)"
-                    if self.sources.contains(where: { $0.url == url }) {
-                        self.finishUpdatingRepos(message: "Error: Este repositorio ya existe.")
-                        return
-                    }
-                    self.sources.append(newSource)
-                    self.fetchApps() // fetchApps ya está optimizado
-                }
-            } catch let decodingError as DecodingError {
-                var errorMessage = "Error de formato JSON: "
-                switch decodingError {
-                case .keyNotFound(let key, let context):
-                    errorMessage += "Falta la clave '\(key.stringValue)' en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
-                case .typeMismatch(_, let context):
-                    errorMessage += "Tipo de dato incorrecto en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
-                case .valueNotFound(_, let context):
-                    errorMessage += "Valor nulo inesperado en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
-                case .dataCorrupted(let context):
-                    errorMessage += "El JSON está corrupto. \(context.debugDescription)"
-                @unknown default:
-                    errorMessage += "Error desconocido al procesar el JSON."
-                }
-                DispatchQueue.main.async { self.finishUpdatingRepos(message: errorMessage, delay: 5) }
-            } catch {
-                DispatchQueue.main.async { self.finishUpdatingRepos(message: "Ocurrió un error inesperado: \(error.localizedDescription)", delay: 3.5) }
-            }
-        }.resume()
+            self.repoDownloadTaskIdentifier = nil // Limpiar el identificador
+            self.processDownloadedRepo(url: url, tempURL: tempURL, error: error)
+        }
+        repoDownloadTaskIdentifier = task.taskIdentifier
+        task.resume()
     }
     
     func fetchApps() {
@@ -292,6 +252,52 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             let uniqueApps = Array(Set(allNewApps))
             self.apps = uniqueApps.sorted { $0.name < $1.name }
             self.finishUpdatingRepos(message: "Sincronización Completada")
+        }
+    }
+    
+    private func processDownloadedRepo(url: String, tempURL: URL?, error: Error?) {
+        if let error = error {
+            let errorMessage: String
+            if let urlError = error as? URLError, urlError.code == .cannotFindHost {
+                errorMessage = "Error: No se pudo encontrar el host. Revisa la URL."
+            } else {
+                errorMessage = "Fallo de red: \(error.localizedDescription)"
+            }
+            finishUpdatingRepos(message: errorMessage, delay: 3.5)
+            return
+        }
+        
+        guard let tempURL = tempURL, let data = try? Data(contentsOf: tempURL) else {
+            finishUpdatingRepos(message: "Error: No se recibió información del servidor.", delay: 3.5)
+            return
+        }
+        
+        do {
+            let feed = try JSONDecoder().decode(AltStoreFeed.self, from: data)
+            let sourceName = feed.name ?? "Repositorio Nuevo"
+            let newSource = AltStoreSource(name: sourceName, url: url, iconURL: feed.iconURL, isActive: true)
+
+            DispatchQueue.main.async {
+                self.repoUpdateStatus = "Instalando Repo: \(sourceName)"
+                if self.sources.contains(where: { $0.url == url }) {
+                    self.finishUpdatingRepos(message: "Error: Este repositorio ya existe.")
+                    return
+                }
+                self.sources.append(newSource)
+                self.fetchApps()
+            }
+        } catch let decodingError as DecodingError {
+            var errorMessage = "Error de formato JSON: "
+            switch decodingError {
+            case .keyNotFound(let key, let context): errorMessage += "Falta la clave '\(key.stringValue)' en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
+            case .typeMismatch(_, let context): errorMessage += "Tipo de dato incorrecto en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
+            case .valueNotFound(_, let context): errorMessage += "Valor nulo inesperado en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
+            case .dataCorrupted(let context): errorMessage += "El JSON está corrupto. \(context.debugDescription)"
+            @unknown default: errorMessage += "Error desconocido al procesar el JSON."
+            }
+            finishUpdatingRepos(message: errorMessage, delay: 5)
+        } catch {
+            finishUpdatingRepos(message: "Ocurrió un error inesperado: \(error.localizedDescription)", delay: 3.5)
         }
     }
     
@@ -389,15 +395,24 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     }
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        guard let app = taskAppMap[downloadTask.taskIdentifier] else { return }
-        let dest = downloadsDirectory.appendingPathComponent("\(app.bundleIdentifier).ipa")
-        try? FileManager.default.removeItem(at: dest)
-        try? FileManager.default.moveItem(at: location, to: dest)
-        
-        DispatchQueue.main.async {
-            self.downloadedApps.insert(app.bundleIdentifier)
-            self.refreshFilesList()
-            self.finishDownloadProcessing(for: app.bundleIdentifier)
+        // Si es una descarga de app
+        if let app = taskAppMap[downloadTask.taskIdentifier] {
+            let dest = downloadsDirectory.appendingPathComponent("\(app.bundleIdentifier).ipa")
+            try? FileManager.default.removeItem(at: dest)
+            try? FileManager.default.moveItem(at: location, to: dest)
+            
+            DispatchQueue.main.async {
+                self.downloadedApps.insert(app.bundleIdentifier)
+                self.refreshFilesList()
+                self.finishDownloadProcessing(for: app.bundleIdentifier)
+            }
+        }
+        // Si es una descarga de repositorio, el closure de finalización en `addSource` se encarga.
+    }
+    
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error, task.taskIdentifier == repoDownloadTaskIdentifier {
+            processDownloadedRepo(url: "", tempURL: nil, error: error)
         }
     }
     
@@ -405,6 +420,11 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         guard let app = taskAppMap[downloadTask.taskIdentifier], totalBytesExpectedToWrite > 0 else { return }
         let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
         DispatchQueue.main.async { self.downloadProgress[app.bundleIdentifier] = progress }
+        // Si es la descarga de un repo
+        if downloadTask.taskIdentifier == repoDownloadTaskIdentifier, totalBytesExpectedToWrite > 0 {
+            let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+            DispatchQueue.main.async { self.repoDownloadProgress = progress }
+        }
     }
 }
 
@@ -491,7 +511,7 @@ struct MainTabView: View {
             }
             
             if viewModel.isUpdatingRepos {
-                LiveStatusOverlay(status: viewModel.repoUpdateStatus)
+                LiveStatusOverlay(status: viewModel.repoUpdateStatus, progress: viewModel.repoDownloadProgress)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(100)
                     .padding(.bottom, 60)
@@ -503,6 +523,7 @@ struct MainTabView: View {
 // Menú Flotante Visual (Live Status)
 struct LiveStatusOverlay: View {
     var status: String
+    var progress: Double
     var body: some View {
         HStack(spacing: 15) {
             ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .cyan))
@@ -516,6 +537,12 @@ struct LiveStatusOverlay: View {
                     .bold()
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
+                
+                if progress > 0 && progress < 1 {
+                    ProgressView(value: progress)
+                        .progressViewStyle(LinearProgressViewStyle(tint: .cyan))
+                        .animation(.easeInOut, value: progress)
+                }
             }
             Spacer()
         }
