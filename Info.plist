@@ -2,30 +2,30 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleExecutable</key>
-    <string>SwiftStore</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.elmendezz.swiftstore</string>
-    <key>CFBundleName</key>
-    <string>SwiftStore</string>
-    <key>CFBundleDisplayName</key>
-    <string>SwiftStore</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>LSRequiresIPhoneOS</key>
-    <true/>
-    <key>MinimumOSVersion</key>
-    <string>15.0</string>
-    <key>UIFileSharingEnabled</key>
-    <true/>
-    <key>LSSupportsOpeningDocumentsInPlace</key>
-    <true/>
-    <key>NSAppTransportSecurity</key>
-    <dict>
-        <key>NSAllowsArbitraryLoads</key>
-        <true/>
-    </dict>
+	<key>CFBundleDisplayName</key>
+	<string>SwiftStore</string>
+	<key>CFBundleExecutable</key>
+	<string>SwiftStore</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.elmendezz.swiftstore</string>
+	<key>CFBundleName</key>
+	<string>SwiftStore</string>
+	<key>CFBundleShortVersionString</key>
+	<string>3.1.6</string>
+	<key>CFBundleVersion</key>
+	<string>3.1.6</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>MinimumOSVersion</key>
+	<string>15.0</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 </dict>
 </plist>
