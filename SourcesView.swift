@@ -29,40 +29,45 @@ struct SourcesView: View {
                 
                 List(selection: $selection) {
                     ForEach($sourceManager.sources) { $source in
-                        HStack(spacing: 15) {
-                            AsyncImage(url: URL(string: source.iconURL ?? "")) { phase in
-                                if let image = phase.image { image.resizable().aspectRatio(contentMode: .fill) }
-                                else { Image(systemName: "server.rack").foregroundColor(.gray) }
-                            }.frame(width: 40, height: 40).cornerRadius(8)
-                            
-                            VStack(alignment: .leading) {
-                                Text(source.name).foregroundColor(.white).fontWeight(.bold)
-                                Text(source.url).font(.caption).foregroundColor(.gray).lineLimit(1)
-                            }
-                            Spacer()
-                            
-                            if let status = sourceManager.sourceSyncStatus[source.url] {
-                                switch status {
-                                case .success(let count):
-                                    NavigationLink(destination: SourceDetailView(source: source, appCount: count)) {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundColor(.green)
-                                    }.buttonStyle(PlainButtonStyle())
-                                case .failure(let error):
-                                    Button(action: {
-                                        selectedError = error
-                                        showingErrorAlert = true
-                                    }) {
-                                        Image(systemName: "info.circle.fill")
-                                            .foregroundColor(.red)
+                        let status = sourceManager.sourceSyncStatus[source.url]
+                        let isSuccess = status.map { if case .success = $0 { return true } else { return false } } ?? false
+
+                        let rowContent = HStack(spacing: 15) {
+                                AsyncImage(url: URL(string: source.iconURL ?? "")) { phase in
+                                    if let image = phase.image { image.resizable().aspectRatio(contentMode: .fill) }
+                                    else { Image(systemName: "server.rack").foregroundColor(.gray) }
+                                }.frame(width: 40, height: 40).cornerRadius(8)
+                                
+                                VStack(alignment: .leading) {
+                                    Text(source.name).foregroundColor(.white).fontWeight(.bold)
+                                    Text(source.url).font(.caption).foregroundColor(.gray).lineLimit(1)
+                                }
+                                Spacer()
+                                
+                                if let status = status {
+                                    switch status {
+                                    case .success:
+                                        Image(systemName: "checkmark.circle.fill").font(.title2).foregroundColor(.green)
+                                    case .failure(let error):
+                                        Button(action: { selectedError = error; showingErrorAlert = true }) {
+                                            Image(systemName: "info.circle.fill").font(.title2).foregroundColor(.red)
+                                        }.buttonStyle(PlainButtonStyle())
                                     }
                                 }
+                                
+                                if editMode == .inactive {
+                                    Toggle("", isOn: $source.isActive)
+                                        .labelsHidden()
+                                        .onChange(of: source.isActive) { _ in sourceManager.fetchApps() }
+                                }
                             }
+
+                        ZStack {
+                            rowContent
                             
-                            if editMode == .inactive {
-                                Toggle("", isOn: $source.isActive)
-                                    .labelsHidden()
-                                    .onChange(of: source.isActive) { _ in sourceManager.fetchApps() }
+                            // NavigationLink invisible que cubre toda la fila
+                            if isSuccess, let count = status.flatMap({ if case .success(let c) = $0 { return c } else { return nil } }) {
+                                NavigationLink(destination: SourceDetailView(source: source, appCount: count)) { EmptyView() }.opacity(0)
                             }
                         }
                         .listRowBackground(Color.white.opacity(0.05))
