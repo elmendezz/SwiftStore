@@ -7,7 +7,7 @@
 //  - Version 1.0: Vista inicial de créditos con Render 3D animado.
 //  - Version 1.1: Removido crédito de asistencia de IA, añadida sección de información de la app, estado de licencia, estadísticas de sesión y botones de interacción social manteniendo intacta la animación 3D.
 //  - Version 1.2: Removidas métricas y botones extra. Añadidos links a GitHub y App (placeholder), acordeón vertical en gris y selector modal para licencias.
-//  - Version 1.3: Removida la sección de información del sistema. Reposicionada la tarjeta de desarrollador hacia la parte inferior sin fondo, ajustada al mismo ancho de los botones de GitHub y colocada cerca de la parte inferior.
+//  - Version 1.3: Removida la sección de información del sistema. Reposicionada la tarjeta de desarrollado por elmendezz al fondo cerca del dock sin fondo, con el mismo tamaño y estilo de los enlaces directos y estática. Render 3D intacto.
 //
 
 import SwiftUI
@@ -19,13 +19,7 @@ struct CreditsView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             
-            VStack(spacing: 0) {
-                Text("Créditos")
-                    .font(.largeTitle)
-                    .bold()
-                    .foregroundColor(.white)
-                    .padding(.top, 20)
-                
+            VStack {
                 Spacer()
                 
                 // Render 3D exactamente igual e intacto
@@ -34,47 +28,45 @@ struct CreditsView: View {
                 
                 Spacer()
                 
-                // Sección inferior agrupada cerca del dock/bottom
-                VStack(spacing: 16) {
-                    // Links directos
-                    VStack(spacing: 12) {
-                        Link(destination: URL(string: "https://github.com/elmendezz")!) {
-                            HStack {
-                                Image(systemName: "code")
-                                Text("GitHub: @elmendezz")
-                            }
-                            .font(.subheadline.weight(.medium))
-                            .foregroundColor(.white)
-                        }
-                        
-                        Link(destination: URL(string: "https://github.com/elmendezz/SwiftStore")!) {
-                            HStack {
-                                Image(systemName: "app.fill")
-                                Text("App SwiftStore")
-                            }
-                            .font(.subheadline.weight(.medium))
-                            .foregroundColor(.cyan)
-                        }
-                        
-                        Button(action: {
-                            showingLicensesSheet.toggle()
-                        }) {
-                            Text("Licencias")
-                                .font(.subheadline.weight(.medium))
-                                .underline()
-                                .foregroundColor(.cyan)
-                        }
-                    }
-                    
-                    // Tarjeta de Desarrollador (sin fondo, tamaño alineado con los links)
-                    VStack(spacing: 4) {
+                // Sección inferior cercana al dock
+                VStack(spacing: 14) {
+                    // Texto Desarrollado por elmendezz
+                    HStack(spacing: 6) {
                         Text("Desarrollado por")
-                            .font(.subheadline)
+                            .font(.subheadline.weight(.medium))
                             .foregroundColor(.gray)
                         
                         Text("elmendezz")
-                            .font(.system(size: 24, weight: .bold, design: .monospaced))
+                            .font(.system(size: 16, weight: .bold, design: .monospaced))
                             .foregroundColor(.cyan)
+                    }
+                    
+                    // Enlaces directos
+                    Link(destination: URL(string: "https://github.com/elmendezz")!) {
+                        HStack {
+                            Image(systemName: "code")
+                            Text("GitHub: @elmendezz")
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.white)
+                    }
+                    
+                    Link(destination: URL(string: "https://github.com/elmendezz/SwiftStore")!) {
+                        HStack {
+                            Image(systemName: "app.fill")
+                            Text("App SwiftStore")
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.cyan)
+                    }
+                    
+                    Button(action: {
+                        showingLicensesSheet.toggle()
+                    }) {
+                        Text("Licencias")
+                            .font(.caption)
+                            .underline()
+                            .foregroundColor(.gray)
                     }
                     .padding(.top, 4)
                 }
