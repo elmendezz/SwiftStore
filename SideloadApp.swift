@@ -326,7 +326,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
                 
                 // LÓGICA MEJORADA: Añadir fuente y apps sin llamar a fetchApps()
                 self.sources.append(newSource)
-                log("✍️ Fuente '\(sourceName)' añadida a la lista.")
+                self.log("✍️ Fuente '\(sourceName)' añadida a la lista.")
                 
                 let existingAppIDs = Set(self.apps.map { $0.bundleIdentifier })
                 let newAppsToAdd = feed.apps.filter { !existingAppIDs.contains($0.bundleIdentifier) }
@@ -334,11 +334,11 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
                 if !newAppsToAdd.isEmpty {
                     self.apps.append(contentsOf: newAppsToAdd)
                     self.apps.sort { $0.name < $1.name } // Mantener orden
-                    log("📲 \(newAppsToAdd.count) nuevas apps añadidas a la tienda.")
+                    self.log("📲 \(newAppsToAdd.count) nuevas apps añadidas a la tienda.")
                 }
                 
                 let finalMessage = "Repositorio '\(sourceName)' añadido."
-                log("🎉 \(finalMessage)"); self.finishUpdatingRepos(message: finalMessage)
+                self.log("🎉 \(finalMessage)"); self.finishUpdatingRepos(message: finalMessage)
             }
         } catch let decodingError as DecodingError {
             var errorMessage = "Error de formato JSON: "
