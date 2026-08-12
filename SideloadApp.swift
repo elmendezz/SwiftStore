@@ -538,7 +538,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
 // MARK: - Animated Blob Background
 struct BlobBackgroundView: View {
     @AppStorage("enableAnimatedBackground") var enableAnimatedBackground: Bool = true
-    @StateObject private var scrollObserver = ScrollObserver()
+    @EnvironmentObject var scrollObserver: ScrollObserver
     @State private var phase: Double = 0
 
     var body: some View {
@@ -692,6 +692,7 @@ struct LiveStatusOverlay: View {
 // MARK: - Store View
 struct StoreView: View {
     @EnvironmentObject var viewModel: AppViewModel
+    @EnvironmentObject var scrollObserver: ScrollObserver
     
     var filteredApps: [AltStoreApp] {
         viewModel.searchText.isEmpty ? viewModel.apps : viewModel.apps.filter { $0.name.localizedCaseInsensitiveContains(viewModel.searchText) }
