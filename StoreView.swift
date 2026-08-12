@@ -161,15 +161,18 @@ struct TranslatedText: View {
         
         // La API de sesión de traducción solo está disponible en iOS 16+
         if #available(iOS 16.0, *) {
-            do {
-                let session = TranslationSession()
-                let configuration = TranslationSession.Configuration(target: .init(identifier: viewModel.translationLanguageCode))
-                
-                // Prepara la sesión (puede descargar modelos de lenguaje si es necesario).
-                try await session.prepare(for: configuration)
-                
-                let response = try await session.translate(originalText)
-                translatedText = response.translation
+            do {                
+                let targetLanguage = Locale.Language(identifier: viewModel.translationLanguageCode)
+                let request = TranslationTask.Request(source: .autodetected, target: targetLanguage, text: originalText)
+
+                if #available(iOS 18.0, *) {
+                    // Nueva API para iOS 18 y superior
+                    let task = TranslationTask(request)
+                    translatedText = try await task.translation
+                } else {
+                    // API antigua para iOS 16 y 17
+                    translatedText = try await Translation.translate(request.text, to: request.target)
+                }
             } catch {
                 translatedText = nil // Si falla, volvemos al texto original.
             }
