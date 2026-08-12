@@ -13,9 +13,18 @@
 
 import SwiftUI
 
+// MARK: - Tipos de Animación para Créditos
+enum AnimationType: String, CaseIterable, Identifiable {
+    case original = "Original"
+    case gemini = "Gemini"
+    var id: String { self.rawValue }
+}
+
 struct CreditsView: View {
     @State private var showingLicensesSheet = false
-
+    @State private var elmendezzTapCount = 0
+    @State private var showingAnimationPicker = false
+    @AppStorage("creditsAnimation") private var selectedAnimation: AnimationType = .original
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -24,8 +33,12 @@ struct CreditsView: View {
                 Spacer()
                 
                 // Render 3D exactamente igual e intacto
-                AnimatedRender3D()
-                    .frame(width: 150, height: 150)
+                Group {
+                    switch selectedAnimation {
+                    case .original: AnimatedRender3D()
+                    case .gemini: GeminiLogoAnimation()
+                    }
+                }.frame(width: 150, height: 150)
                 
                 Spacer()
                 
@@ -41,12 +54,19 @@ struct CreditsView: View {
                             .font(.system(size: 16, weight: .bold, design: .monospaced))
                             .foregroundColor(.cyan)
                     }
+                    .onTapGesture {
+                        elmendezzTapCount += 1
+                        if elmendezzTapCount >= 5 {
+                            showingAnimationPicker = true
+                            elmendezzTapCount = 0
+                        }
+                    }
                     
                     // Enlaces directos estáticos
                     Link(destination: URL(string: "https://github.com/elmendezz")!) {
                         HStack {
-                            Image(systemName: "code")
-                            Text("GitHub: @elmendezz")
+                            Image("github_icon") // Usando el icono personalizado
+                            Text("@elmendezz")
                         }
                         .font(.subheadline.weight(.medium))
                         .foregroundColor(.white)
@@ -55,7 +75,7 @@ struct CreditsView: View {
                     Link(destination: URL(string: "https://github.com/elmendezz/SwiftStore")!) {
                         HStack {
                             Image(systemName: "app.fill")
-                            Text("App SwiftStore")
+                            Text("SwiftStore")
                         }
                         .font(.subheadline.weight(.medium))
                         .foregroundColor(.cyan)
@@ -79,6 +99,15 @@ struct CreditsView: View {
         }
         .sheet(isPresented: $showingLicensesSheet) {
             LicensesView()
+        }
+        .actionSheet(isPresented: $showingAnimationPicker) {
+            ActionSheet(
+                title: Text("Seleccionar Animación"),
+                message: Text("Elige una animación para la vista de créditos."),
+                buttons: AnimationType.allCases.map { animationType in
+                        .default(Text(animationType.rawValue)) { selectedAnimation = animationType }
+                } + [.cancel()]
+            )
         }
     }
 }
@@ -111,6 +140,54 @@ struct LicensesView: View {
                     .foregroundColor(.cyan)
                 }
             }
+        }
+    }
+}
+
+// MARK: - Icono de GitHub (Recreación simple)
+struct GitHubIcon: View {
+    var body: some View {
+        ZStack {
+            // Cuerpo del Octocat
+            Path { path in
+                path.move(to: CGPoint(x: 15, y: 0))
+                path.addQuadCurve(to: CGPoint(x: 0, y: 15), control: CGPoint(x: 0, y: 0))
+                path.addQuadCurve(to: CGPoint(x: 15, y: 30), control: CGPoint(x: 0, y: 30))
+                path.addQuadCurve(to: CGPoint(x: 30, y: 15), control: CGPoint(x: 30, y: 30))
+                path.addQuadCurve(to: CGPoint(x: 15, y: 0), control: CGPoint(x: 30, y: 0))
+            }
+            .fill(Color.white)
+            
+            // Ojos
+            Circle().fill(Color.black).frame(width: 3, height: 3).offset(x: -5, y: -3)
+            Circle().fill(Color.black).frame(width: 3, height: 3).offset(x: 5, y: -3)
+        }
+        .frame(width: 16, height: 16) // Tamaño similar a un SF Symbol
+    }
+}
+
+// MARK: - Animación del Logo de Gemini
+struct GeminiLogoAnimation: View {
+    @State private var phase: Double = 0
+    
+    var body: some View {
+        ZStack {
+            // Estrella principal
+            Image(systemName: "star.fill")
+                .font(.system(size: 80))
+                .foregroundStyle(LinearGradient(colors: [Color(hex: "4285F4"), Color(hex: "9B72CB")], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .rotationEffect(.degrees(phase * 20))
+                .scaleEffect(1 + sin(phase * 1.5) * 0.1)
+
+            // Estrella secundaria
+            Image(systemName: "sparkle")
+                .font(.system(size: 40))
+                .foregroundStyle(LinearGradient(colors: [Color(hex: "9B72CB"), Color(hex: "F4B400")], startPoint: .top, endPoint: .bottom))
+                .rotationEffect(.degrees(-phase * 30))
+                .offset(x: cos(phase) * 40, y: sin(phase) * 40)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 10).repeatForever(autoreverses: true)) { phase = .pi * 2 }
         }
     }
 }
