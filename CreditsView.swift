@@ -2,12 +2,13 @@
 //  CreditsView.swift
 //  SwiftStore
 //
-//  Version: 1.3
+//  Version: 1.4
 //  Changelog:
 //  - Version 1.0: Vista inicial de créditos con Render 3D animado.
 //  - Version 1.1: Removido crédito de asistencia de IA, añadida sección de información de la app, estado de licencia, estadísticas de sesión y botones de interacción social manteniendo intacta la animación 3D.
 //  - Version 1.2: Removidas métricas y botones extra. Añadidos links a GitHub y App (placeholder), acordeón vertical en gris y selector modal para licencias.
-//  - Version 1.3: Removida la sección de información del sistema. Reposicionada la tarjeta de desarrollado por elmendezz al fondo cerca del dock sin fondo, con el mismo tamaño y estilo de los enlaces directos y estática. Render 3D intacto.
+//  - Version 1.3: Removida la sección de información del sistema. Reposicionada la tarjeta de desarrollado por elmendezz al fondo cerca del dock sin fondo, con el mismo tamaño y estilo de los enlaces directos.
+//  - Version 1.4: Fijados todos los textos y elementos del pie de página para garantizar que permanezcan 100% estáticos sin transiciones ni animaciones. Render 3D animado intacto.
 //
 
 import SwiftUI
@@ -19,7 +20,7 @@ struct CreditsView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             
-            VStack {
+            VStack(spacing: 0) {
                 Spacer()
                 
                 // Render 3D exactamente igual e intacto
@@ -28,7 +29,7 @@ struct CreditsView: View {
                 
                 Spacer()
                 
-                // Sección inferior cercana al dock
+                // Sección inferior fija y estática cerca del dock
                 VStack(spacing: 14) {
                     // Texto Desarrollado por elmendezz
                     HStack(spacing: 6) {
@@ -41,7 +42,7 @@ struct CreditsView: View {
                             .foregroundColor(.cyan)
                     }
                     
-                    // Enlaces directos
+                    // Enlaces directos estáticos
                     Link(destination: URL(string: "https://github.com/elmendezz")!) {
                         HStack {
                             Image(systemName: "code")
