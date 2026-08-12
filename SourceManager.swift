@@ -172,30 +172,29 @@ class SourceManager: NSObject, ObservableObject, URLSessionDownloadDelegate {
             let sourceName = feed.name ?? "Repositorio Nuevo"
             let newSource = AltStoreSource(name: sourceName, url: url, iconURL: feed.iconURL, isActive: true)
             log("✅ Decodificación exitosa: \(feed.apps.count) apps encontradas en '\(sourceName)'.")
-
-            DispatchQueue.main.async {
-                self.repoUpdateStatus = "Instalando Repo: \(sourceName)"
+            
+            // Comprobar si la fuente ya existe (en el hilo principal para acceso seguro a `sources`)
+            DispatchQueue.main.sync {
                 if self.sources.contains(where: { $0.url == url }) {
                     self.log("⚠️ Error: Este repositorio ya existe.")
                     self.repoUpdateStatus = "La fuente ya existe"
                     self.showSourceExistsAlert = true
-                    return
+                    throw NSError(domain: "SourceManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Duplicate source"])
                 }
-                
+            }
+            
+            // Procesar y añadir las apps en un hilo de fondo para no congelar la UI
+            let existingAppIDs = Set(self.apps.map { $0.bundleIdentifier })
+            let newAppsToAdd = feed.apps.filter { !existingAppIDs.contains($0.bundleIdentifier) }
+            
+            // Volver al hilo principal solo para actualizar la UI con los resultados
+            DispatchQueue.main.async {
                 self.sources.append(newSource)
                 self.log("✍️ Fuente '\(sourceName)' añadida a la lista.")
-                
-                let existingAppIDs = Set(self.apps.map { $0.bundleIdentifier })
-                let newAppsToAdd = feed.apps.filter { !existingAppIDs.contains($0.bundleIdentifier) }
-                
-                if !newAppsToAdd.isEmpty {
-                    self.apps.append(contentsOf: newAppsToAdd)
-                    self.apps.sort { $0.name < $1.name }
-                    self.log("📲 \(newAppsToAdd.count) nuevas apps añadidas a la tienda.")
-                }
-                
-                let finalMessage = "Repositorio '\(sourceName)' añadido."
-                self.log("🎉 \(finalMessage)"); self.finishUpdatingRepos(message: finalMessage)
+                self.apps.append(contentsOf: newAppsToAdd)
+                self.apps.sort { $0.name < $1.name }
+                if !newAppsToAdd.isEmpty { self.log("📲 \(newAppsToAdd.count) nuevas apps añadidas a la tienda.") }
+                self.finishUpdatingRepos(message: "Repositorio '\(sourceName)' añadido.")
             }
         } catch let decodingError as DecodingError {
             // Simplified error message for brevity
