@@ -538,34 +538,48 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
 // MARK: - Animated Blob Background
 struct BlobBackgroundView: View {
     @AppStorage("enableAnimatedBackground") var enableAnimatedBackground: Bool = true
+    @StateObject private var scrollObserver = ScrollObserver()
     @State private var phase: Double = 0
-    
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            
+
             if enableAnimatedBackground {
-                RoundedRectangle(cornerRadius: 150, style: .continuous)
-                    .fill(LinearGradient(colors: [Color(hex: "5E35B1"), Color(hex: "283593")], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 320, height: 350)
-                    .rotationEffect(.degrees(phase * 40))
-                    .scaleEffect(1 + CGFloat(sin(phase)) * 0.1)
-                    .blur(radius: 60)
-                    .offset(x: sin(phase * 1.5) * 80, y: cos(phase * 1.2) * 80)
-                
-                RoundedRectangle(cornerRadius: 120, style: .continuous)
-                    .fill(LinearGradient(colors: [Color(hex: "0288D1"), .clear], startPoint: .bottom, endPoint: .top))
-                    .frame(width: 380, height: 300)
-                    .rotationEffect(.degrees(-phase * 30))
-                    .blur(radius: 80)
-                    .offset(x: cos(phase * 0.8) * -60, y: sin(phase * 1.1) * 100)
+                // Recreamos la estética del render de créditos para el fondo.
+                ZStack {
+                    // Círculo (Base)
+                    Circle()
+                        .fill(LinearGradient(colors: [.cyan, .blue], startPoint: .top, endPoint: .bottom))
+                        .rotationEffect(.degrees(phase / 2))
+                    
+                    // Rectángulo Redondeado (Medio)
+                    RoundedRectangle(cornerRadius: 100, style: .continuous)
+                        .fill(LinearGradient(colors: [.purple, .indigo], startPoint: .leading, endPoint: .trailing))
+                        .rotationEffect(.degrees(-phase / 1.5))
+                    
+                    // Cápsula (Frente)
+                    Capsule()
+                        .fill(LinearGradient(colors: [.orange, .pink], startPoint: .bottomLeading, endPoint: .topTrailing))
+                        .rotationEffect(.degrees(phase))
+                }
+                .frame(width: 400, height: 400)
+                .blur(radius: 80)
+                .offset(y: -100) // Lo subimos un poco para que sea más visible detrás de las listas
+                .rotationEffect(.degrees(scrollObserver.scrollVelocity / 10)) // Respuesta al scroll
+                .onAppear {
+                    // Animación base que se combina con la velocidad del scroll
+                    withAnimation(.linear(duration: 40).repeatForever(autoreverses: false)) {
+                        phase += 360
+                    }
+                }
+                .onChange(of: scrollObserver.scrollVelocity) { newVelocity in
+                    // La rotación principal ahora se controla directamente en el modificador .rotationEffect
+                }
             }
         }
-        .onAppear {
-            if enableAnimatedBackground {
-                withAnimation(.linear(duration: 15).repeatForever(autoreverses: true)) { phase = .pi * 2 }
-            }
-        }
+        // El entorno es la clave para que la vista de fondo reciba las notificaciones de scroll
+        .environmentObject(scrollObserver)
     }
 }
 
@@ -686,7 +700,7 @@ struct StoreView: View {
     var body: some View {
         ZStack {
             BlobBackgroundView()
-            
+
             ScrollView {
                 VStack(spacing: 15) {
                     HStack {
@@ -694,7 +708,8 @@ struct StoreView: View {
                         TextField("Buscar aplicaciones...", text: $viewModel.searchText)
                             .foregroundColor(.white)
                     }
-                    .padding(12).background(Color.white.opacity(0.08)).cornerRadius(12).padding(.horizontal)
+                    .padding(12).background(Color.white.opacity(0.08)).cornerRadius(12)
+                    .padding([.horizontal, .top])
                     
                     if filteredApps.isEmpty {
                         VStack(spacing: 10) {
@@ -706,10 +721,12 @@ struct StoreView: View {
                             ForEach(filteredApps) { app in
                                 NavigationLink(destination: AppDetailView(app: app)) { AppCardView(app: app) }.buttonStyle(PlainButtonStyle())
                             }
-                        }.padding(.bottom, 20)
+                        }.padding(.horizontal).padding(.bottom, 20)
                     }
                 }
+                .background(ScrollVelocityObserver()) // Observador de velocidad de scroll
             }
+            
         }.navigationTitle("SwiftStore")
     }
 }
@@ -720,15 +737,23 @@ struct AppCardView: View {
     var body: some View {
         LiquidGlassCard {
             HStack(spacing: 15) {
-                AsyncImage(url: URL(string: app.iconURL ?? "")) { phase in
-                    if let image = phase.image { image.resizable().aspectRatio(contentMode: .fill) }
-                    else if phase.error != nil { Color.black.opacity(0.8) } // Color Oscuro estilo Google
-                    else { ProgressView() }
-                }.frame(width: 55, height: 55).cornerRadius(14)
+                CachedAsyncImage(url: URL(string: app.iconURL ?? "")) { image in
+                    image.resizable().aspectRatio(contentMode: .fill)
+                } placeholder: {
+                    ProgressView()
+                }.frame(width: 55, height: 55).background(Color.black.opacity(0.8)).cornerRadius(14)
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(app.name).font(.system(size: 17, weight: .bold)).foregroundColor(.white)
                     Text(app.developerName).font(.system(size: 13, weight: .regular)).foregroundColor(.gray)
+                    
+                    if let description = app.localizedDescription, !description.isEmpty {
+                        Text(description)
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .lineLimit(2)
+                            .padding(.top, 1)
+                    }
                 }
                 Spacer()
                 DownloadIndicator(app: app)
@@ -745,9 +770,10 @@ struct AppDetailView: View {
             BlobBackgroundView()
             ScrollView {
                 VStack(spacing: 20) {
-                    AsyncImage(url: URL(string: app.iconURL ?? "")) { phase in
-                        if let image = phase.image { image.resizable().aspectRatio(contentMode: .fit) }
-                        else { RoundedRectangle(cornerRadius: 24).fill(Color.black.opacity(0.8)) } // Color Oscuro estilo Google
+                    CachedAsyncImage(url: URL(string: app.iconURL ?? "")) { image in
+                        image.resizable().aspectRatio(contentMode: .fit)
+                    } placeholder: {
+                        RoundedRectangle(cornerRadius: 24).fill(Color.black.opacity(0.8))
                     }.frame(width: 120, height: 120).cornerRadius(24).shadow(radius: 10)
                     
                     Text(app.name).font(.largeTitle).bold().foregroundColor(.white)
@@ -1018,6 +1044,89 @@ struct SettingsView: View {
         }
     }
 }
+
+// MARK: - Sistema de Caché de Imágenes
+
+/// Un gestor de caché simple para almacenar y recuperar datos de imágenes en disco.
+class ImageCache {
+    static let shared = ImageCache()
+    private let fileManager = FileManager.default
+    private lazy var cacheDirectory: URL = {
+        let url = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let cacheUrl = url.appendingPathComponent("ImageCache")
+        try? fileManager.createDirectory(at: cacheUrl, withIntermediateDirectories: true, attributes: nil)
+        return cacheUrl
+    }()
+
+    private func path(for key: String) -> URL {
+        let fileName = Data(key.utf8).base64EncodedString()
+        return cacheDirectory.appendingPathComponent(fileName)
+    }
+
+    func set(data: Data, for key: String) {
+        let url = path(for: key)
+        try? data.write(to: url)
+    }
+
+    func get(for key: String) -> Data? {
+        let url = path(for: key)
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        return try? Data(contentsOf: url)
+    }
+}
+
+/// Una vista que carga una imagen desde una URL, usando una caché en disco para evitar descargas repetidas.
+struct CachedAsyncImage<Content: View, Placeholder: View>: View {
+    private let url: URL?
+    private let content: (Image) -> Content
+    private let placeholder: () -> Placeholder
+    
+    @State private var image: Image?
+
+    init(url: URL?, @ViewBuilder content: @escaping (Image) -> Content, @ViewBuilder placeholder: @escaping () -> Placeholder) {
+        self.url = url
+        self.content = content
+        self.placeholder = placeholder
+    }
+
+    var body: some View {
+        Group {
+            if let image = image {
+                content(image)
+            } else {
+                placeholder()
+            }
+        }
+        .onAppear(perform: loadImage)
+    }
+
+    private func loadImage() {
+        guard let url = url else { return }
+        let key = url.absoluteString
+
+        // 1. Intentar cargar desde la caché
+        if let cachedData = ImageCache.shared.get(for: key), let uiImage = UIImage(data: cachedData) {
+            self.image = Image(uiImage: uiImage)
+            return
+        }
+
+        // 2. Si no está en caché, descargar
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data = data, let uiImage = UIImage(data: data) else { return }
+            
+            // 3. Guardar en caché y actualizar la UI
+            ImageCache.shared.set(data: data, for: key)
+            DispatchQueue.main.async {
+                self.image = Image(uiImage: uiImage)
+            }
+        }.resume()
+    }
+}
+
+// MARK: - Observador de Velocidad de Scroll
+class ScrollObserver: ObservableObject { @Published var scrollVelocity: CGFloat = 0 }
+struct ScrollVelocityObserver: View { @EnvironmentObject var observer: ScrollObserver; var body: some View { GeometryReader { geo in Color.clear.preference(key: ScrollVelocityPreferenceKey.self, value: geo.frame(in: .global).minY) } } }
+struct ScrollVelocityPreferenceKey: PreferenceKey { static var defaultValue: CGFloat = 0; static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { let velocity = nextValue() - value; DispatchQueue.main.async { (UIApplication.shared.windows.first?.rootViewController?.view.subviews.first?.subviews.first?.subviews.first?.subviews.first?.subviews.first?.subviews.first?.subviews.first as? UIHostingController<MainTabView>)?.rootView.viewModel.scrollObserver.scrollVelocity = velocity } } }
 
 // MARK: - Liquid Glass Component & Colors
 struct LiquidGlassCard<Content: View>: View {
