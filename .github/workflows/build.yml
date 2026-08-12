@@ -91,7 +91,7 @@ jobs:
           echo "==> Compilando código fuente Swift..."
           swiftc $(find . -name "*.swift") -parse-as-library \
                  -sdk $(xcrun --sdk iphoneos --show-sdk-path) \
-                 -target arm64-apple-ios15.0 \
+                 -target arm64-apple-ios16.0 \
                  -Xcc -isysroot -Xcc "$(xcrun --sdk iphoneos --show-sdk-path)" \
                  -o Payload/SwiftStore.app/SwiftStore
 
@@ -100,7 +100,7 @@ jobs:
             xcrun actool Assets.xcassets \
               --compile Payload/SwiftStore.app \
               --platform iphoneos \
-              --minimum-deployment-target 15.0 \
+              --minimum-deployment-target 16.0 \
               --app-icon AppIcon \
               --output-partial-info-plist /tmp/actool-partial.plist
 

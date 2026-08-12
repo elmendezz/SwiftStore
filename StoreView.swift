@@ -163,16 +163,13 @@ struct TranslatedText: View {
         if #available(iOS 16.0, *) {
             do {                
                 let targetLanguage = Locale.Language(identifier: viewModel.translationLanguageCode)
-                let request = TranslationTask.Request(source: .autodetected, target: targetLanguage, text: originalText)
-
-                if #available(iOS 18.0, *) {
-                    // Nueva API para iOS 18 y superior
-                    let task = TranslationTask(request)
-                    translatedText = try await task.translation
-                } else {
-                    // API antigua para iOS 16 y 17
-                    translatedText = try await Translation.translate(request.text, to: request.target)
-                }
+                
+                // Para iOS 16.0 y superiores, usaremos TranslationSession.
+                // El inicializador TranslationSession() sin argumentos no es válido.
+                // Usamos `installedSource: .undetermined` para que el sistema detecte el idioma de origen.
+                let session = TranslationSession(installedSource: .undetermined, target: targetLanguage)
+                let response = try await session.translate(originalText)
+                translatedText = response.translation
             } catch {
                 translatedText = nil // Si falla, volvemos al texto original.
             }
