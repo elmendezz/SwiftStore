@@ -76,32 +76,46 @@ jobs:
 
       - name: Setup macOS SDK and Compile
         run: |
+          echo "==> Creando estructura de la app..."
           mkdir -p Payload/SwiftStore.app
 
           if [ -f "Info.plist" ]; then
+            echo "==> Copiando Info.plist a la app..."
+            cp Info.plist Payload/SwiftStore.app/Info.plist
+
+            echo "==> Actualizando versión en el Info.plist de la app..."
             /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ env.APP_VERSION }}" Info.plist 2>/dev/null || true
             /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ env.APP_VERSION }}" Info.plist 2>/dev/null || true
           fi
 
+          echo "==> Compilando código fuente Swift..."
           swiftc $(find . -name "*.swift") -parse-as-library \
                  -sdk $(xcrun --sdk iphoneos --show-sdk-path) \
                  -target arm64-apple-ios15.0 \
                  -o Payload/SwiftStore.app/SwiftStore
 
-          if [ -f "Info.plist" ]; then
-            cp Info.plist Payload/SwiftStore.app/Info.plist
+          if [ -d "Assets.xcassets" ]; then
+            echo "==> Compilando Assets.xcassets..."
+            xcrun actool Assets.xcassets \
+              --compile Payload/SwiftStore.app \
+              --platform iphoneos \
+              --minimum-deployment-target 15.0 \
+              --app-icon AppIcon \
+              --output-partial-info-plist /tmp/actool-partial.plist
+
+            echo "==> Fusionando información del icono en Info.plist..."
+            /usr/libexec/PlistBuddy -c "Merge /tmp/actool-partial.plist" Payload/SwiftStore.app/Info.plist
+          else
+            echo "ERROR: No se encontró el directorio Assets.xcassets"
+            exit 1
           fi
 
-          # Compilar y copiar los assets (ícono y otros)
-          if [ -d "Assets/AppIcon.appiconset" ]; then
-            xcrun actool Assets/AppIcon.appiconset \
-                   --compile Payload/SwiftStore.app \
-                   --platform iphoneos \
-                   --minimum-deployment-target 15.0 \
-                   --app-icon AppIcon \
-                   --output-partial-info-plist /tmp/actool-partial.plist
+          if [ ! -f "Payload/SwiftStore.app/Assets.car" ]; then
+            echo "ERROR: El archivo Assets.car no fue generado."
+            exit 1
           fi
 
+          echo "OK: Assets.car generado correctamente. Empaquetando IPA..."
           zip -r SwiftStore.ipa Payload
 
       - name: Upload SwiftStore IPA Artifact
