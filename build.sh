@@ -48,10 +48,9 @@ fi
 # Proceso de Build
 mkdir -p Payload/SwiftStore.app
 
-swiftc -parse-as-library \
+swiftc $(find . -name "*.swift") -parse-as-library \
        -sdk $(xcrun --sdk iphoneos --show-sdk-path) \
        -target arm64-apple-ios15.0 \
-       -emit-executable *.swift \
        -o Payload/SwiftStore.app/SwiftStore
 
 if [ -f "Info.plist" ]; then
@@ -61,6 +60,11 @@ fi
 # Copiar los assets del ícono si existen
 if [ -d "Assets/AppIcon.appiconset" ]; then
     cp -r Assets/AppIcon.appiconset Payload/SwiftStore.app/
+fi
+
+# Copiar otros assets (imágenes para la UI) si existen
+if [ -d "Assets/Images" ]; then
+    cp -r Assets/Images/* Payload/SwiftStore.app/
 fi
 
 zip -r SwiftStore.ipa Payload
