@@ -57,14 +57,15 @@ if [ -f "Info.plist" ]; then
     cp Info.plist Payload/SwiftStore.app/Info.plist
 fi
 
-# Copiar los assets del ícono si existen
+# Compilar y copiar los assets (ícono y otros)
 if [ -d "Assets/AppIcon.appiconset" ]; then
-    cp -r Assets/AppIcon.appiconset Payload/SwiftStore.app/
-fi
-
-# Copiar otros assets (imágenes para la UI) si existen
-if [ -d "Assets/Images" ]; then
-    cp -r Assets/Images/* Payload/SwiftStore.app/
+    xcrun actool Assets/AppIcon.appiconset \
+           --compile Payload/SwiftStore.app \
+           --platform iphoneos \
+           --minimum-deployment-target 15.0 \
+           --app-icon AppIcon \
+           --output-partial-info-plist /tmp/actool-partial.plist
 fi
 
 zip -r SwiftStore.ipa Payload
+rm -rf Payload
