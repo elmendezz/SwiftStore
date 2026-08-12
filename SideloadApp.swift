@@ -417,14 +417,17 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     }
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard let app = taskAppMap[downloadTask.taskIdentifier], totalBytesExpectedToWrite > 0 else { return }
-        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
-        DispatchQueue.main.async { self.downloadProgress[app.bundleIdentifier] = progress }
         // Si es la descarga de un repo
         if downloadTask.taskIdentifier == repoDownloadTaskIdentifier, totalBytesExpectedToWrite > 0 {
             let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
             DispatchQueue.main.async { self.repoDownloadProgress = progress }
+            return // Es una descarga de repo, no hacemos más nada aquí.
         }
+        
+        // Si es una descarga de app
+        guard let app = taskAppMap[downloadTask.taskIdentifier], totalBytesExpectedToWrite > 0 else { return }
+        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        DispatchQueue.main.async { self.downloadProgress[app.bundleIdentifier] = progress }
     }
 }
 
