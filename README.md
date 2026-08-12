@@ -1,12 +1,13 @@
 # SwiftStore
+<img width="1280" height="640" alt="IMG_2690" src="https://github.com/user-attachments/assets/9db5ab0d-eed2-42f4-808c-937f70b5b79e" />
 
 [![SwiftUI](https://img.shields.io/badge/Hecho%20con-SwiftUI-cyan.svg)](https://developer.apple.com/xcode/swiftui/)
-[![iOS](https://img.shields.io/badge/iOS-15.0%2B-blue.svg)](https://www.apple.com/ios/)
+[![iOS](https://img.shields.io/badge/iOS-16.0%2B-blue.svg)](https://www.apple.com/ios/)
 [![Build](https://github.com/elmendezz/SwiftStore/actions/workflows/build.yml/badge.svg)](https://github.com/elmendezz/SwiftStore/actions/workflows/build.yml)
 
 **SwiftStore** es un cliente alternativo moderno y ligero para explorar repositorios de aplicaciones compatibles con AltStore. Construido desde cero con SwiftUI, está diseñado para ser rápido, eficiente y, sobre todo, robusto.
 
-## El Problema que Resuelve: La Falla de los Repositorios Grandes
+## La Falla de los Repositorios Grandes
 
 Los clientes de tiendas alternativas tradicionales a menudo enfrentan un problema crítico: al intentar cargar un repositorio (fuente) grande o que contiene una o más aplicaciones con formato incorrecto (un "JSON malformado"), el proceso de sincronización falla por completo. Esto resulta en que **ninguna aplicación** de esa fuente se muestre, dejando al usuario sin acceso al contenido.
 
