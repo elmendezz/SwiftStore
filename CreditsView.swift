@@ -1,49 +1,178 @@
+//
+//  CreditsView.swift
+//  SwiftStore
+//
+//  Version: 1.2
+//  Changelog:
+//  - Version 1.0: Vista inicial de créditos con Render 3D animado.
+//  - Version 1.1: Removido crédito de asistencia de IA, añadida sección de información de la app, estado de licencia, estadísticas de sesión y botones de interacción social manteniendo intacta la animación 3D.
+//  - Version 1.2: Removidas métricas y botones extra. Añadidos links a GitHub y App (placeholder), acordeón vertical en gris y selector modal para licencias.
+//
+
 import SwiftUI
 
-// MARK: - Credits View & Animated Renders
 struct CreditsView: View {
+    @State private var showingInfoAccordion = false
+    @State private var showingLicensesSheet = false
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
             
-            VStack(spacing: 30) {
-                Text("Créditos")
-                    .font(.largeTitle)
-                    .bold()
-                    .foregroundColor(.white)
-                
-                AnimatedRender3D()
-                    .frame(width: 150, height: 150)
-                
-                LiquidGlassCard {
-                    VStack(spacing: 15) {
-                        Text("Desarrollado por")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
+            ScrollView {
+                VStack(spacing: 25) {
+                    Text("Créditos")
+                        .font(.largeTitle)
+                        .bold()
+                        .foregroundColor(.white)
+                        .padding(.top, 20)
+                    
+                    // Render 3D exactamente igual e intacto
+                    AnimatedRender3D()
+                        .frame(width: 150, height: 150)
+                    
+                    // Tarjeta de Desarrollador
+                    LiquidGlassCard {
+                        VStack(spacing: 12) {
+                            Text("Desarrollado por")
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
+                            
+                            Text("elmendezz")
+                                .font(.system(size: 26, weight: .bold, design: .monospaced))
+                                .foregroundColor(.cyan)
+                        }
+                        .padding()
+                    }
+                    .padding(.horizontal, 25)
+                    
+                    // Acordeón vertical con letras grises
+                    VStack(alignment: .leading, spacing: 10) {
+                        Button(action: {
+                            withAnimation(.easeInOut) {
+                                showingInfoAccordion.toggle()
+                            }
+                        }) {
+                            HStack {
+                                Text("Información del sistema")
+                                    .font(.subheadline)
+                                    .foregroundColor(.gray)
+                                Spacer()
+                                Image(systemName: showingInfoAccordion ? "chevron.up" : "chevron.down")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
+                        }
                         
-                        Text("elmendezz")
-                            .font(.system(size: 24, weight: .bold, design: .monospaced))
+                        if showingInfoAccordion {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Plataforma: iOS / iPadOS")
+                                Text("Arquitectura: SwiftUI Native")
+                                Text("Motor: Swift 5.x")
+                                
+                                Button(action: {
+                                    showingLicensesSheet.toggle()
+                                }) {
+                                    Text("Licencias")
+                                        .underline()
+                                        .foregroundColor(.cyan)
+                                }
+                                .padding(.top, 4)
+                            }
+                            .font(.footnote)
+                            .foregroundColor(.gray)
+                            .padding(.top, 5)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+                    }
+                    .padding()
+                    .background(Color.white.opacity(0.04))
+                    .cornerRadius(12)
+                    .padding(.horizontal, 25)
+                    
+                    // Links directos
+                    VStack(spacing: 12) {
+                        Link(destination: URL(string: "https://github.com/elmendezz")!) {
+                            HStack {
+                                Image(systemName: "code")
+                                Text("GitHub: @elmendezz")
+                            }
+                            .font(.subheadline.weight(.medium))
+                            .foregroundColor(.white)
+                        }
+                        
+                        Link(destination: URL(string: "https://github.com/elmendezz/SwiftStore")!) {
+                            HStack {
+                                Image(systemName: "app.fill")
+                                Text("App SwiftStore")
+                            }
+                            .font(.subheadline.weight(.medium))
                             .foregroundColor(.cyan)
-                        
-                        Divider().background(Color.white.opacity(0.2))
-                        
-                        Text("Asistido por")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
-                        
-                        Text("Gemini")
-                            .font(.system(size: 22, weight: .semibold, design: .rounded))
-                            .foregroundColor(.purple)
+                        }
+                    }
+                    .padding(.bottom, 30)
+                }
+            }
+        }
+        .sheet(isPresented: $showingLicensesSheet) {
+            LicensesView()
+        }
+    }
+}
+
+// MARK: - Licencias Sheet View
+struct LicensesView: View {
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        LicenseCard(title: "SwiftStore", bodyText: "Copyright (c) 2026 elmendezz.\nTodos los derechos reservados.")
+                        LicenseCard(title: "SwiftUI & Apple SDKs", bodyText: "Proporcionado por Apple Inc. bajo los términos de desarrollador de Apple.")
+                        LicenseCard(title: "Open Source Components", bodyText: "Uso de licencias MIT / Apache 2.0 para dependencias internas.")
                     }
                     .padding()
                 }
-                .padding(.horizontal, 30)
+            }
+            .navigationTitle("Licencias")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Cerrar") {
+                        dismiss()
+                    }
+                    .foregroundColor(.cyan)
+                }
             }
         }
     }
 }
 
-// Animación de Formas Aleatorias para la Vista de Créditos
+struct LicenseCard: View {
+    let title: String
+    let bodyText: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundColor(.white)
+            Text(bodyText)
+                .font(.caption)
+                .foregroundColor(.gray)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.06))
+        .cornerRadius(10)
+    }
+}
+
+// MARK: - Animación de Formas Aleatorias para la Vista de Créditos (INTACTO)
 struct AnimatedRender3D: View {
     @State private var phase: Double = 0
     

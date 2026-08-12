@@ -12,22 +12,58 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Read App Version
+        id: get_version
+        run: |
+          if [ ! -f "version.sync" ]; then
+            echo "3.1.5" > version.sync
+          fi
+          VERSION=$(cat version.sync | tr -d '[:space:]')
+          echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Versión compilando: $VERSION"
 
       - name: Setup macOS SDK and Compile
         run: |
           mkdir -p Payload/SwiftStore.app
           
+          if [ -f "Info.plist" ]; then
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ env.APP_VERSION }}" Info.plist 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ env.APP_VERSION }}" Info.plist 2>/dev/null || true
+          fi
+
           swiftc -parse-as-library \
                  -sdk $(xcrun --sdk iphoneos --show-sdk-path) \
                  -target arm64-apple-ios15.0 \
                  -emit-executable *.swift \
                  -o Payload/SwiftStore.app/SwiftStore
           
-          cp Info.plist Payload/SwiftStore.app/Info.plist
+          if [ -f "Info.plist" ]; then
+            cp Info.plist Payload/SwiftStore.app/Info.plist
+          fi
+          
           zip -r SwiftStore.ipa Payload
 
       - name: Upload SwiftStore IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SwiftStore-IPA
+          name: SwiftStore-${{ env.APP_VERSION }}
           path: SwiftStore.ipa
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: SwiftStore-${{ env.APP_VERSION }}
+          name: SwiftStore ${{ env.APP_VERSION }}
+          draft: false
+          prerelease: false
+          files: SwiftStore.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
