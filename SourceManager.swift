@@ -12,6 +12,7 @@ class SourceManager: NSObject, ObservableObject, URLSessionDownloadDelegate {
     
     @Published var recentlyDeletedSources: [AltStoreSource] = []
     @Published var showUndoAlert: Bool = false
+    @Published var showSourceExistsAlert: Bool = false
     
     private var repoDownloadSession: URLSession!
     private var repoDownloadTaskIdentifier: Int?
@@ -122,11 +123,16 @@ class SourceManager: NSObject, ObservableObject, URLSessionDownloadDelegate {
             }.resume()
         }
         
-        group.notify(queue: .main) {
-            let uniqueApps = Array(Set(allNewApps))
-            self.apps = uniqueApps.sorted { $0.name < $1.name }
-            let msg = "Sincronización Completada"
-            self.log("✅ \(msg): \(uniqueApps.count) apps únicas cargadas."); self.finishUpdatingRepos(message: msg)
+        group.notify(queue: appProcessingQueue) { // Realizar el procesamiento final en el hilo de fondo
+            let uniqueApps = Array(Set(allNewApps)) // Eliminar duplicados
+            let sortedApps = uniqueApps.sorted { $0.name < $1.name } // Ordenar alfabéticamente
+            
+            // Volver al hilo principal solo para actualizar la UI
+            DispatchQueue.main.async {
+                self.apps = sortedApps
+                let msg = "Sincronización Completada"
+                self.log("✅ \(msg): \(sortedApps.count) apps únicas cargadas."); self.finishUpdatingRepos(message: msg)
+            }
         }
     }
     
@@ -158,8 +164,9 @@ class SourceManager: NSObject, ObservableObject, URLSessionDownloadDelegate {
             DispatchQueue.main.async {
                 self.repoUpdateStatus = "Instalando Repo: \(sourceName)"
                 if self.sources.contains(where: { $0.url == url }) {
-                    let msg = "Error: Este repositorio ya existe."
-                    self.log("⚠️ \(msg)"); self.finishUpdatingRepos(message: msg)
+                    self.log("⚠️ Error: Este repositorio ya existe.")
+                    self.repoUpdateStatus = "La fuente ya existe"
+                    self.showSourceExistsAlert = true
                     return
                 }
                 

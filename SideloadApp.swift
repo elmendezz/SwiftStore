@@ -141,12 +141,15 @@ struct AltStoreFeed: Codable {
 class AppViewModel: ObservableObject {
     // MARK: Settings (@AppStorage)
     @AppStorage("asyncRepoSync") var asyncRepoSync: Bool = true
-    @AppStorage("autoUpdateApps") var autoUpdateApps: Bool = false
-    @AppStorage("wifiOnly") var wifiOnly: Bool = true
+    @AppStorage("enableAutoRefresh") var enableAutoRefresh: Bool = false
+    @AppStorage("autoRefreshInterval") var autoRefreshInterval: Double = 15.0 // en minutos
+    @AppStorage("wifiOnly") var wifiOnly: Bool = true // Nota: Esta opción no está implementada actualmente.
     @AppStorage("amoledPitchBlack") var amoledPitchBlack: Bool = true
     @AppStorage("downloadFolder") var downloadFolder: String = "Documentos" // This now drives the UI in SettingsView
     @AppStorage("enableAnimatedBackground") var enableAnimatedBackground: Bool = true
     @AppStorage("enableCreditsGlow") var enableCreditsGlow: Bool = false
+    @AppStorage("enableTranslation") var enableTranslation: Bool = false
+    @AppStorage("translationLanguageCode") var translationLanguageCode: String = "es"
 
     // MARK: UI State
     @Published var searchText: String = ""
@@ -155,10 +158,12 @@ class AppViewModel: ObservableObject {
 // MARK: - Main Tab View
 struct MainTabView: View {
     @EnvironmentObject var sourceManager: SourceManager
+    @EnvironmentObject var viewModel: AppViewModel
     @StateObject private var scrollObserver = ScrollObserver()
     @State private var tabSelection: Int = 0
     @State private var storeViewId = UUID() // Para hacer pop-to-root en la vista de la tienda
     @State private var showingLogView = false
+    @State private var autoRefreshCancellable: AnyCancellable?
 
     // Binding personalizado para detectar toques en la pestaña ya seleccionada.
     private var selectedTab: Binding<Int> {

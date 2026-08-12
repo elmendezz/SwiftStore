@@ -10,6 +10,16 @@ struct SettingsView: View {
 
     let renders = ["3D_Render_1", "3D_Render_2", "3D_Render_3"]
     let folders = ["Documentos", "Caché"]
+    let availableLanguages: [(name: String, code: String)] = [
+        ("Español", "es"),
+        ("Inglés", "en"),
+        ("Francés", "fr"),
+        ("Alemán", "de"),
+        ("Italiano", "it"),
+        ("Portugués", "pt"),
+        ("Japonés", "ja"),
+        ("Chino (Simplificado)", "zh-Hans")
+    ]
 
     private var appVersion: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "N/A"
@@ -22,8 +32,19 @@ struct SettingsView: View {
 
             Form {
                 Section(header: Text("Sincronización").foregroundColor(.cyan)) {
-                    Toggle("Async Repo Sync", isOn: $viewModel.asyncRepoSync)
-                    Toggle("Actualizar apps automáticamente", isOn: $viewModel.autoUpdateApps)
+                    Toggle("Sincronización asíncrona de repos", isOn: $viewModel.asyncRepoSync).toggleStyle(SwitchToggleStyle(tint: .cyan))
+                    
+                    Toggle("Refrescar apps automáticamente", isOn: $viewModel.enableAutoRefresh)
+                        .toggleStyle(SwitchToggleStyle(tint: .cyan))
+
+                    if viewModel.enableAutoRefresh {
+                        Picker("Intervalo de refresco", selection: $viewModel.autoRefreshInterval) {
+                            Text("5 minutos").tag(5.0)
+                            Text("15 minutos").tag(15.0)
+                            Text("30 minutos").tag(30.0)
+                            Text("1 hora").tag(60.0)
+                        }
+                    }
                 }.listRowBackground(Color.white.opacity(0.08))
 
                 Section(header: Text("Archivos").foregroundColor(.cyan)) {
@@ -34,6 +55,16 @@ struct SettingsView: View {
                     .onChange(of: viewModel.downloadFolder) { newValue in
                         fileManager.downloadFolder = newValue
                     }
+                }.listRowBackground(Color.white.opacity(0.08))
+
+                Section(header: Text("Traducción").foregroundColor(.cyan)) {
+                    Toggle("Traducir descripciones", isOn: $viewModel.enableTranslation).toggleStyle(SwitchToggleStyle(tint: .cyan))
+                    Picker("Idioma De La Traducción", selection: $viewModel.translationLanguageCode) {
+                        ForEach(availableLanguages, id: \.code) { lang in
+                            Text(lang.name).tag(lang.code)
+                        }
+                    }
+                    .disabled(!viewModel.enableTranslation)
                 }.listRowBackground(Color.white.opacity(0.08))
 
                 Section(header: Text("Apariencia").foregroundColor(.cyan)) {

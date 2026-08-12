@@ -95,5 +95,14 @@ struct SourcesView: View {
                 Button(action: { sourceManager.fetchApps() }) { Image(systemName: "arrow.triangle.2.circlepath").foregroundColor(.cyan) }
             }
         }
+        .alert("Fuente Duplicada", isPresented: $sourceManager.showSourceExistsAlert) {
+            Button("OK", role: .cancel) {
+                // Al cerrar la alerta, detenemos el indicador de actividad.
+                sourceManager.isUpdatingRepos = false
+                sourceManager.repoDownloadProgress = 0.0
+            }
+        } message: {
+            Text("La fuente que intentas añadir ya se encuentra en tu lista.")
+        }
     }
 }

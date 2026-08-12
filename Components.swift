@@ -30,8 +30,8 @@ struct BlobBackgroundView: View {
                         .rotationEffect(.degrees(phase))
                 }
                 .frame(width: 400, height: 400)
-                .blur(radius: 80)
-                .offset(y: -100) // Lo subimos un poco para que sea más visible detrás de las listas
+                .blur(radius: 65) // El radio del blur es muy costoso para el rendimiento. Reducirlo mejora la fluidez.
+                .offset(y: -120) // Ajustamos la posición para compensar el menor desenfoque
                 .rotationEffect(.degrees(scrollObserver.scrollVelocity / 20)) // Respuesta al scroll
                 .onAppear {
                     // Animación base que se combina con la velocidad del scroll
@@ -151,9 +151,9 @@ struct LiquidGlassCard<Content: View>: View {
     var content: Content
     init(@ViewBuilder content: () -> Content) { self.content = content() }
     var body: some View {
-        content.padding()
-            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white.opacity(0.06)).background(.ultraThinMaterial.opacity(0.3)).overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(LinearGradient(gradient: Gradient(colors: [Color.white.opacity(0.3), Color.white.opacity(0.05)]), startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)))
-            .shadow(color: Color.black.opacity(0.6), radius: 10, x: 0, y: 5)
+        content.padding().background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white.opacity(0.06)).background(.ultraThinMaterial.opacity(0.3)).overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(LinearGradient(gradient: Gradient(colors: [Color.white.opacity(0.3), Color.white.opacity(0.05)]), startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)))
+            .shadow(color: Color.black.opacity(0.4), radius: 8, x: 0, y: 4) // Sombra más ligera para mejorar el rendimiento en listas largas
     }
 }
 

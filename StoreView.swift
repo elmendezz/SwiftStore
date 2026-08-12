@@ -1,4 +1,5 @@
 import SwiftUI
+import Translation
 
 // MARK: - Store View
 struct StoreView: View {
@@ -74,7 +75,8 @@ struct AppCardView: View {
                         .foregroundColor(.secondary)
                     
                     if let description = app.localizedDescription, !description.isEmpty {
-                        Text(description).font(.caption).foregroundColor(.secondary) // Usando secondary para mejor contraste
+                        TranslatedText(description)
+                            .font(.caption).foregroundColor(.secondary) // Usando secondary para mejor contraste
                             .lineLimit(2)
                             .padding(.top, 1)
                     }
@@ -107,7 +109,8 @@ struct AppDetailView: View {
                     
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Descripción").font(.headline).foregroundColor(.white)
-                        Text(app.localizedDescription ?? "No hay descripción disponible.").foregroundColor(.gray).font(.body)
+                        TranslatedText(app.localizedDescription ?? "No hay descripción disponible.")
+                            .foregroundColor(.gray).font(.body)
                     }.padding().background(Color.white.opacity(0.05)).cornerRadius(16).padding(.horizontal)
                 }.padding(.vertical)
             }
@@ -118,6 +121,57 @@ struct AppDetailView: View {
                     Button(action: { fileManager.deleteAppFile(app: app); downloadManager.startDownload(app: app) }) { Label("Volver a descargar", systemImage: "arrow.clockwise.icloud") }
                     Button(action: { fileManager.deleteAppFile(app: app) }) { Label("Eliminar", systemImage: "trash") }
                 } label: { Image(systemName: "ellipsis").foregroundColor(.white).font(.headline) } // Icono nativo de 3 puntos
+            }
+        }
+    }
+}
+
+/// Una vista que muestra texto, traduciéndolo automáticamente si la opción está activada en los ajustes.
+/// Utiliza la API `TranslationSession` de iOS 16+. En versiones anteriores, muestra el texto original.
+struct TranslatedText: View {
+    let originalText: String
+    
+    @EnvironmentObject var viewModel: AppViewModel
+    @State private var translatedText: String?
+    
+    init(_ text: String) {
+        self.originalText = text
+    }
+
+    var body: some View {
+        let textToDisplay = (viewModel.enableTranslation ? translatedText : originalText) ?? originalText
+        
+        Text(textToDisplay)
+            .task(id: viewModel.enableTranslation) {
+                await performTranslation()
+            }
+            .task(id: viewModel.translationLanguageCode) {
+                await performTranslation()
+            }
+    }
+    
+    private func performTranslation() async {
+        // Si la traducción está desactivada o el texto está vacío, reseteamos.
+        guard viewModel.enableTranslation, !originalText.isEmpty else {
+            if translatedText != nil {
+                translatedText = nil
+            }
+            return
+        }
+        
+        // La API de sesión de traducción solo está disponible en iOS 16+
+        if #available(iOS 16.0, *) {
+            do {
+                let session = TranslationSession()
+                let configuration = TranslationSession.Configuration(target: .init(identifier: viewModel.translationLanguageCode))
+                
+                // Prepara la sesión (puede descargar modelos de lenguaje si es necesario).
+                try await session.prepare(for: configuration)
+                
+                let response = try await session.translate(originalText)
+                translatedText = response.translation
+            } catch {
+                translatedText = nil // Si falla, volvemos al texto original.
             }
         }
     }
