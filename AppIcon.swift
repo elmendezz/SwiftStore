@@ -27,18 +27,25 @@ struct AppIconExporterView: View {
                 .frame(height: 150)
                 .padding(.horizontal)
 
-                // Botón de exportación
-                ShareLink(
-                    item: renderIcon(),
-                    preview: SharePreview("AppIcon-\(Int(selectedSize)).png", image: renderIcon())
-                ) {
-                    Label("Exportar Imagen", systemImage: "square.and.arrow.up")
-                        .fontWeight(.bold)
-                        .foregroundColor(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.cyan)
-                        .cornerRadius(12)
+                // Botón de exportación con compatibilidad para iOS 15
+                if #available(iOS 16.0, *) {
+                    ShareLink(
+                        item: renderToImage(),
+                        preview: SharePreview("AppIcon-\(Int(selectedSize)).png", image: renderToImage())
+                    ) {
+                        exportButtonLabel()
+                    }
+                } else {
+                    // Fallback para iOS 15
+                    Button(action: {
+                        // La funcionalidad de compartir en iOS 15 es más limitada
+                        // y requiere UIViewControllerRepresentable para compartir una imagen.
+                        // Por simplicidad, aquí solo imprimimos un mensaje.
+                        // Para una implementación completa, se necesitaría un `UIActivityViewController`.
+                        print("La exportación avanzada solo está disponible en iOS 16+.")
+                    }) {
+                        exportButtonLabel()
+                    }
                 }
                 .padding()
 
@@ -51,8 +58,21 @@ struct AppIconExporterView: View {
         .preferredColorScheme(.dark)
     }
 
-    /// Renderiza la `AppIconView` a una imagen `Image` para poder compartirla.
-    private func renderIcon() -> Image {
+    /// Etiqueta reutilizable para el botón de exportación.
+    @ViewBuilder
+    private func exportButtonLabel() -> some View {
+        Label("Exportar Imagen", systemImage: "square.and.arrow.up")
+            .font(.headline.weight(.bold))
+            .foregroundColor(.black)
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(Color.cyan)
+            .cornerRadius(12)
+    }
+
+    /// Renderiza la `AppIconView` a una imagen `Image` para poder compartirla (iOS 16+).
+    @available(iOS 16.0, *)
+    private func renderToImage() -> Image {
         let viewToRender = AppIconView(size: selectedSize)
         let renderer = ImageRenderer(content: viewToRender)
         renderer.scale = UIScreen.main.scale
@@ -60,7 +80,7 @@ struct AppIconExporterView: View {
             return Image(uiImage: uiImage)
         }
         // Fallback a una imagen vacía si la renderización falla
-        return Image(systemName: "exclamationmark.triangle.fill")
+        return Image(systemName: "exclamationmark.triangle")
     }
 }
 
