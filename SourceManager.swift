@@ -123,7 +123,7 @@ class SourceManager: NSObject, ObservableObject, URLSessionDownloadDelegate {
                             // Agregamos las apps de forma segura usando el actor
                             await aggregator.add(feed.apps)
                             
-                        } catch let error as DecodingError {
+                        } catch is DecodingError {
                             await MainActor.run {
                                 let msg = "JSON corrupto en: \(source.name)"
                                 self.repoUpdateStatus = msg; self.log("🛑 \(msg)")
