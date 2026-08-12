@@ -13,9 +13,9 @@
 	<key>CFBundleName</key>
 	<string>SwiftStore</string>
 	<key>CFBundleShortVersionString</key>
-	<string>3.14.6</string>
+	<string>3.14.7</string>
 	<key>CFBundleVersion</key>
-	<string>3.14.6</string>
+	<string>3.14.7</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
