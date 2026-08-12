@@ -164,12 +164,10 @@ struct TranslatedText: View {
             do {                
                 let targetLanguage = Locale.Language(identifier: viewModel.translationLanguageCode)
                 
-                // Para iOS 16.0 y superiores, usamos TranslationSession.
-                // Se inicializa sin parámetros y luego se configura.
-                let session = TranslationSession()
-                try await session.prepare(for: .init(source: .autodetected, target: targetLanguage))
-                let response = try await session.translate(originalText)
-                translatedText = response.translation
+                // Para iOS 16.0 y superiores, usamos la API estática `Translation.translate`
+                // que es más directa y evita problemas con los inicializadores de TranslationSession.
+                let request = TranslationRequest(source: .autodetected, target: targetLanguage, text: originalText)
+                translatedText = try await Translation.translate(request)
             } catch {
                 translatedText = nil // Si falla, volvemos al texto original.
             }
