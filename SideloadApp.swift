@@ -764,8 +764,6 @@ struct SourcesView: View {
 // MARK: - Files Manager View
 struct FilesView: View {
     @EnvironmentObject var viewModel: AppViewModel
-    @State private var editMode: EditMode = .inactive
-    @State private var selection = Set<URL>()
     var body: some View {
         ZStack {
             BlobBackgroundView()
@@ -775,7 +773,7 @@ struct FilesView: View {
                     Text("No hay archivos descargados").foregroundColor(.gray)
                 }
             } else {
-                List(selection: $selection) {
+                List {
                     ForEach(viewModel.downloadedFiles, id: \.self) { fileURL in
                         HStack {
                             Image(systemName: "doc.zipper").font(.system(size: 30)).foregroundColor(.cyan).padding(.trailing, 8)
@@ -787,34 +785,12 @@ struct FilesView: View {
                                 }
                             }
                         }.padding(.vertical, 4).listRowBackground(Color.white.opacity(0.05))
-                        .onLongPressGesture {
-                            withAnimation { editMode = .active }
-                        }
                     }.onDelete { indexSet in
                         indexSet.forEach { index in try? FileManager.default.removeItem(at: viewModel.downloadedFiles[index]) }
                         viewModel.refreshFilesList()
                         viewModel.checkDownloadedFiles()
-                }
-                .environment(\.editMode, $editMode)
-                .hideListBackground()
-            }
-            
-            if editMode == .active {
-                VStack {
-                    Spacer()
-                    HStack(spacing: 40) {
-                        Button(role: .destructive, action: {
-                            selection.forEach { url in try? FileManager.default.removeItem(at: url) }
-                            viewModel.refreshFilesList()
-                            viewModel.checkDownloadedFiles()
-                            selection.removeAll()
-                            editMode = .inactive
-                        }) { VStack { Image(systemName: "trash"); Text("Eliminar") } }.disabled(selection.isEmpty)
-                        
-                        Button(action: { selection.removeAll(); editMode = .inactive }) { VStack { Image(systemName: "xmark.circle"); Text("Cancelar") } }
                     }
-                    .padding().background(.ultraThinMaterial).cornerRadius(20).padding()
-                }
+                }.hideListBackground()
             }
         }
         .navigationTitle("Archivos")
@@ -893,5 +869,21 @@ struct LiquidGlassCard<Content: View>: View {
         content.padding()
             .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white.opacity(0.06)).background(.ultraThinMaterial.opacity(0.3)).overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(LinearGradient(gradient: Gradient(colors: [Color.white.opacity(0.3), Color.white.opacity(0.05)]), startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.5)))
             .shadow(color: Color.black.opacity(0.6), radius: 10, x: 0, y: 5)
+    }
+}
+
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default: (a, r, g, b) = (1, 1, 1, 0)
+        }
+        self.init(.sRGB, red: Double(r) / 255, green: Double(g) / 255, blue:  Double(b) / 255, opacity: Double(a) / 255)
     }
 }
