@@ -60,7 +60,7 @@ fi
 
 # Copiar los assets del ícono si existen
 if [ -d "Assets/AppIcon.appiconset" ]; then
-    cp -r Assets/AppIcon.appiconset/*.png Payload/SwiftStore.app/
+    cp -r Assets/AppIcon.appiconset Payload/SwiftStore.app/
 fi
 
 zip -r SwiftStore.ipa Payload

@@ -841,9 +841,9 @@ struct SettingsView: View {
                     Toggle("Fondo Animado (Burbujas)", isOn: $viewModel.enableAnimatedBackground).toggleStyle(SwitchToggleStyle(tint: .cyan))
                     Toggle("Efecto Glow en Créditos", isOn: $viewModel.enableCreditsGlow).toggleStyle(SwitchToggleStyle(tint: .cyan))
                 }.listRowBackground(Color.white.opacity(0.08))
-                .onTapGesture {
-                    secretTapCount += 1
-                }
+                //.onTapGesture {
+                //    secretTapCount += 1
+                //}
                 
                 Section(header: Text("Acerca de").foregroundColor(.cyan)) {
                     VStack(alignment: .center, spacing: 10) {
