@@ -28,23 +28,25 @@ struct AppIconExporterView: View {
                 .padding(.horizontal)
 
                 // Botón de exportación con compatibilidad para iOS 15
-                if #available(iOS 16.0, *) {
-                    ShareLink(
-                        item: renderToImage(),
-                        preview: SharePreview("AppIcon-\(Int(selectedSize)).png", image: renderToImage())
-                    ) {
-                        exportButtonLabel()
-                    }
-                } else {
-                    // Fallback para iOS 15
-                    Button(action: {
-                        // La funcionalidad de compartir en iOS 15 es más limitada
-                        // y requiere UIViewControllerRepresentable para compartir una imagen.
-                        // Por simplicidad, aquí solo imprimimos un mensaje.
-                        // Para una implementación completa, se necesitaría un `UIActivityViewController`.
-                        print("La exportación avanzada solo está disponible en iOS 16+.")
-                    }) {
-                        exportButtonLabel()
+                Group {
+                    if #available(iOS 16.0, *) {
+                        ShareLink(
+                            item: renderToImage(),
+                            preview: SharePreview("AppIcon-\(Int(selectedSize)).png", image: renderToImage())
+                        ) {
+                            exportButtonLabel()
+                        }
+                    } else {
+                        // Fallback para iOS 15
+                        Button(action: {
+                            // La funcionalidad de compartir en iOS 15 es más limitada
+                            // y requiere UIViewControllerRepresentable para compartir una imagen.
+                            // Por simplicidad, aquí solo imprimimos un mensaje.
+                            // Para una implementación completa, se necesitaría un `UIActivityViewController`.
+                            print("La exportación avanzada solo está disponible en iOS 16+.")
+                        }) {
+                            exportButtonLabel()
+                        }
                     }
                 }
                 .padding()
