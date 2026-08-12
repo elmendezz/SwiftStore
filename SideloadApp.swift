@@ -144,6 +144,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     @Published var isDownloading: [String: Bool] = [:]
     @Published var downloadQueue: [AltStoreApp] = []
     private var currentDownload: AltStoreApp?
+    private var downloadSession: URLSession!
     private var downloadTasks: [String: URLSessionDownloadTask] = [:]
     private var taskAppMap: [Int: AltStoreApp] = [:]
     private var repoDownloadTaskIdentifier: Int?
@@ -154,6 +155,11 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     
     override init() {
         super.init()
+        // Usamos una única sesión de URLSession para todas las descargas, con un delegado en un hilo de fondo.
+        // Esto previene que la sesión se desaloje prematuramente y mejora la estabilidad.
+        // El `delegateQueue: nil` hace que URLSession cree un hilo de fondo seguro para nosotros.
+        self.downloadSession = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        
         loadSources()
         checkDownloadedFiles()
         fetchApps()
@@ -189,8 +195,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         }
         
         // Usar URLSessionDownloadTask para obtener el progreso
-        let session = URLSession(configuration: .default, delegate: self, delegateQueue: OperationQueue.main)
-        let task = session.downloadTask(with: validURL) { [weak self] tempURL, response, error in
+        let task = downloadSession.downloadTask(with: validURL) { [weak self] tempURL, response, error in
             // Este bloque se ejecuta al finalizar la descarga
             guard let self = self else { return }
             self.repoDownloadTaskIdentifier = nil // Limpiar el identificador
@@ -366,12 +371,15 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             return
         }
         
-        let session = URLSession(configuration: .default, delegate: self, delegateQueue: OperationQueue.main)
-        let task = session.downloadTask(with: url)
+        let task = downloadSession.downloadTask(with: url)
         downloadTasks[nextApp.bundleIdentifier] = task
         taskAppMap[task.taskIdentifier] = nextApp
-        isDownloading[nextApp.bundleIdentifier] = true
-        downloadProgress[nextApp.bundleIdentifier] = 0.01
+        
+        DispatchQueue.main.async {
+            self.isDownloading[nextApp.bundleIdentifier] = true
+            self.downloadProgress[nextApp.bundleIdentifier] = 0.01
+        }
+        
         task.resume()
     }
     
@@ -385,12 +393,14 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     }
     
     private func finishDownloadProcessing(for identifier: String) {
-        isDownloading[identifier] = false
-        downloadProgress[identifier] = 0.0
-        downloadTasks[identifier] = nil
-        if currentDownload?.bundleIdentifier == identifier {
-            currentDownload = nil
-            processDownloadQueue()
+        DispatchQueue.main.async {
+            self.isDownloading[identifier] = false
+            self.downloadProgress[identifier] = 0.0
+            self.downloadTasks[identifier] = nil
+            if self.currentDownload?.bundleIdentifier == identifier {
+                self.currentDownload = nil
+                self.processDownloadQueue()
+            }
         }
     }
     
@@ -411,8 +421,15 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     }
     
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        // Error en la descarga de un repositorio
         if let error = error, task.taskIdentifier == repoDownloadTaskIdentifier {
             processDownloadedRepo(url: "", tempURL: nil, error: error)
+            return
+        }
+        
+        // Error en la descarga de una app
+        if let error = error, let app = taskAppMap[task.taskIdentifier] {
+            finishDownloadProcessing(for: app.bundleIdentifier)
         }
     }
     
