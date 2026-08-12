@@ -766,8 +766,6 @@ struct FilesView: View {
     @EnvironmentObject var viewModel: AppViewModel
     @State private var editMode: EditMode = .inactive
     @State private var selection = Set<URL>()
-    @State private var selectedFileForAction: URL?
-
     var body: some View {
         ZStack {
             BlobBackgroundView()
@@ -788,9 +786,6 @@ struct FilesView: View {
                                     Text(formatBytes(fileSize)).font(.caption).foregroundColor(.gray)
                                 }
                             }
-                        }.contentShape(Rectangle()) // Asegura que toda la fila sea tappable
-                        .onTapGesture {
-                            selectedFileForAction = fileURL
                         }.padding(.vertical, 4).listRowBackground(Color.white.opacity(0.05))
                         .onLongPressGesture {
                             withAnimation { editMode = .active }
@@ -822,51 +817,16 @@ struct FilesView: View {
                 }
             }
         }
-        .navigationTitle("Archivos") // This should be inside the ZStack
+        .navigationTitle("Archivos")
         .onAppear { viewModel.refreshFilesList() }
     }
-    .actionSheet(item: $selectedFileForAction) { fileURL in
-        ActionSheet(
-            title: Text(fileURL.lastPathComponent),
-            message: Text("Selecciona una acción"),
-            buttons: [
-                .default(Text("Compartir IPA")) {
-                    share(url: fileURL)
-                },
-                .destructive(Text("Eliminar")) {
-                    try? FileManager.default.removeItem(at: fileURL)
-                    viewModel.refreshFilesList()
-                    viewModel.checkDownloadedFiles()
-                },
-                .cancel()
-            ]
-        )
-    }
     
-    func formatBytes(_ bytes: Int64) -> String {
+    private func formatBytes(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useMB, .useGB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
     }
-    
-    private func share(url: URL) {
-        let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        
-        // Compatibilidad con iPad
-        if let sourceView = UIApplication.shared.windows.first?.rootViewController?.view {
-            activityVC.popoverPresentationController?.sourceView = sourceView
-            activityVC.popoverPresentationController?.sourceRect = CGRect(x: sourceView.bounds.midX, y: sourceView.bounds.midY, width: 0, height: 0)
-            activityVC.popoverPresentationController?.permittedArrowDirections = []
-        }
-        
-        UIApplication.shared.windows.first?.rootViewController?.present(activityVC, animated: true, completion: nil)
-    }
-}
-
-// Extensión para usar URL en .actionSheet
-extension URL: Identifiable {
-    public var id: String { self.absoluteString }
 }
 
 // MARK: - Settings View
