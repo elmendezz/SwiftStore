@@ -148,8 +148,6 @@ class AppViewModel: ObservableObject {
     @AppStorage("downloadFolder") var downloadFolder: String = "Documentos" // This now drives the UI in SettingsView
     @AppStorage("enableAnimatedBackground") var enableAnimatedBackground: Bool = true
     @AppStorage("enableCreditsGlow") var enableCreditsGlow: Bool = false
-    @AppStorage("enableTranslation") var enableTranslation: Bool = false
-    @AppStorage("translationLanguageCode") var translationLanguageCode: String = "es"
 
     // MARK: UI State
     @Published var searchText: String = ""

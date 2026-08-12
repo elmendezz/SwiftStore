@@ -10,16 +10,6 @@ struct SettingsView: View {
 
     let renders = ["3D_Render_1", "3D_Render_2", "3D_Render_3"]
     let folders = ["Documentos", "Caché"]
-    let availableLanguages: [(name: String, code: String)] = [
-        ("Español", "es"),
-        ("Inglés", "en"),
-        ("Francés", "fr"),
-        ("Alemán", "de"),
-        ("Italiano", "it"),
-        ("Portugués", "pt"),
-        ("Japonés", "ja"),
-        ("Chino (Simplificado)", "zh-Hans")
-    ]
 
     private var appVersion: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "N/A"
@@ -55,16 +45,6 @@ struct SettingsView: View {
                     .onChange(of: viewModel.downloadFolder) { newValue in
                         fileManager.downloadFolder = newValue
                     }
-                }.listRowBackground(Color.white.opacity(0.08))
-
-                Section(header: Text("Traducción").foregroundColor(.cyan)) {
-                    Toggle("Traducir descripciones", isOn: $viewModel.enableTranslation).toggleStyle(SwitchToggleStyle(tint: .cyan))
-                    Picker("Idioma De La Traducción", selection: $viewModel.translationLanguageCode) {
-                        ForEach(availableLanguages, id: \.code) { lang in
-                            Text(lang.name).tag(lang.code)
-                        }
-                    }
-                    .disabled(!viewModel.enableTranslation)
                 }.listRowBackground(Color.white.opacity(0.08))
 
                 Section(header: Text("Apariencia").foregroundColor(.cyan)) {
