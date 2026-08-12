@@ -216,6 +216,8 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
                     errorMessage += "Error desconocido al procesar el JSON."
                 }
                 DispatchQueue.main.async { self.finishUpdatingRepos(message: errorMessage, delay: 5) }
+            } catch {
+                DispatchQueue.main.async { self.finishUpdatingRepos(message: "Ocurrió un error inesperado: \(error.localizedDescription)", delay: 3.5) }
             }
         }.resume()
     }
@@ -795,6 +797,11 @@ struct SettingsView: View {
     let renders = ["3D_Render_1", "3D_Render_2", "3D_Render_3"]
     let folders = ["Documentos", "Caché"]
     
+    private var appVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "N/A"
+        return "SwiftStore v\(version)"
+    }
+    
     var body: some View {
         ZStack {
             BlobBackgroundView()
@@ -821,7 +828,7 @@ struct SettingsView: View {
                         Image(randomImageName.isEmpty ? "default_render" : randomImageName)
                             .resizable().aspectRatio(contentMode: .fit).frame(height: 120).cornerRadius(15)
                             .onAppear { randomImageName = renders.randomElement() ?? "" }
-                        Text("SwiftStore v3.1.2").font(.headline).foregroundColor(.white)
+                        Text(appVersion).font(.headline).foregroundColor(.white)
                     }.frame(maxWidth: .infinity).padding(.vertical, 10)
                     
                     NavigationLink(destination: CreditsView()) {
