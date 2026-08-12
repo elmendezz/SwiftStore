@@ -809,6 +809,7 @@ struct FilesView: View {
 struct SettingsView: View {
     @EnvironmentObject var viewModel: AppViewModel
     @State private var randomImageName: String = ""
+    @State private var versionTapCount = 0
     
     let renders = ["3D_Render_1", "3D_Render_2", "3D_Render_3"]
     let folders = ["Documentos", "Caché"]
@@ -844,7 +845,15 @@ struct SettingsView: View {
                         Image(randomImageName.isEmpty ? "default_render" : randomImageName)
                             .resizable().aspectRatio(contentMode: .fit).frame(height: 120).cornerRadius(15)
                             .onAppear { randomImageName = renders.randomElement() ?? "" }
-                        Text(appVersion).font(.headline).foregroundColor(.white)
+                        Text(appVersion)
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .onTapGesture {
+                                versionTapCount += 1
+                                if versionTapCount >= 10 {
+                                    versionTapCount = 0 // Reset and show
+                                }
+                            }
                     }.frame(maxWidth: .infinity).padding(.vertical, 10)
                     
                     NavigationLink(destination: CreditsView()) {
@@ -858,6 +867,11 @@ struct SettingsView: View {
             }.hideListBackground()
         }
         .navigationTitle("Configuración")
+        .sheet(isPresented: .constant(versionTapCount >= 10)) {
+            AppIconView()
+                .onDisappear { versionTapCount = 0 } // Reset when sheet is dismissed
+                .background(Color.black.ignoresSafeArea())
+        }
     }
 }
 
