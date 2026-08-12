@@ -61,21 +61,39 @@ struct AltStoreSource: Identifiable, Codable, Hashable {
     var isActive: Bool = true
 }
 
+struct AppVersion: Codable, Hashable {
+    let version: String
+    let date: String
+    let downloadURL: String
+    let size: Int64?
+}
+
 struct AltStoreApp: Identifiable, Codable, Hashable {
     var id: String { bundleIdentifier }
     let name: String
     let bundleIdentifier: String
     let developerName: String
-    let version: String
-    let downloadURL: String
     let localizedDescription: String?
     let iconURL: String?
+    let versions: [AppVersion]
+
+    var version: String {
+        return versions.first?.version ?? "N/A"
+    }
+
+    var downloadURL: String {
+        return versions.first?.downloadURL ?? ""
+    }
     
     func hash(into hasher: inout Hasher) { hasher.combine(bundleIdentifier) }
     static func ==(lhs: AltStoreApp, rhs: AltStoreApp) -> Bool { return lhs.bundleIdentifier == rhs.bundleIdentifier }
 }
 
 struct AltStoreFeed: Codable {
+    // Ignorar el campo 'identifier' del JSON para evitar errores de decodificación.
+    private enum CodingKeys: String, CodingKey {
+        case name, iconURL, apps
+    }
     let name: String?
     let iconURL: String?
     let apps: [AltStoreApp]
@@ -141,7 +159,10 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     
     // MARK: Funciones de Red (Con Estatus y Errores Detallados)
     func addSource(url: String) {
-        guard let validURL = URL(string: url) else { return } // Removida validación estricta de scheme para mejor soporte HTTP
+        guard let validURL = URL(string: url), UIApplication.shared.canOpenURL(validURL) else {
+            finishUpdatingRepos(message: "Error: La URL ingresada no es válida.", delay: 3.5)
+            return
+        }
         DispatchQueue.main.async {
             self.isUpdatingRepos = true
             self.repoUpdateStatus = "Descargando JSON del nuevo repositorio..."
@@ -151,7 +172,13 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             guard let self = self else { return }
             
             if let error = error {
-                DispatchQueue.main.async { self.finishUpdatingRepos(message: "Fallo de red: \(error.localizedDescription)", delay: 3.5) }
+                let errorMessage: String
+                if let urlError = error as? URLError, urlError.code == .cannotFindHost {
+                    errorMessage = "Error: No se pudo encontrar el host. Revisa la URL."
+                } else {
+                    errorMessage = "Fallo de red: \(error.localizedDescription)"
+                }
+                DispatchQueue.main.async { self.finishUpdatingRepos(message: errorMessage, delay: 3.5) }
                 return
             }
             
@@ -174,8 +201,21 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
                         self.finishUpdatingRepos(message: "Error: Este repositorio ya existe.")
                     }
                 }
-            } catch {
-                DispatchQueue.main.async { self.finishUpdatingRepos(message: "Error: El archivo JSON es inválido o no compatible.", delay: 3.5) }
+            } catch let decodingError as DecodingError {
+                var errorMessage = "Error de formato JSON: "
+                switch decodingError {
+                case .keyNotFound(let key, let context):
+                    errorMessage += "Falta la clave '\(key.stringValue)' en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
+                case .typeMismatch(_, let context):
+                    errorMessage += "Tipo de dato incorrecto en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
+                case .valueNotFound(_, let context):
+                    errorMessage += "Valor nulo inesperado en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
+                case .dataCorrupted(let context):
+                    errorMessage += "El JSON está corrupto. \(context.debugDescription)"
+                @unknown default:
+                    errorMessage += "Error desconocido al procesar el JSON."
+                }
+                DispatchQueue.main.async { self.finishUpdatingRepos(message: errorMessage, delay: 5) }
             }
         }.resume()
     }
