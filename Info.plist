@@ -27,5 +27,16 @@
 	</dict>
 	<key>UIFileSharingEnabled</key>
 	<true/>
+	<key>CFBundleIcons</key>
+	<dict>
+		<key>CFBundlePrimaryIcon</key>
+		<dict>
+			<key>CFBundleIconFiles</key>
+			<array>
+				<string>Icon-60@2x</string>
+				<string>Icon-60@3x</string>
+			</array>
+		</dict>
+	</dict>
 </dict>
 </plist>

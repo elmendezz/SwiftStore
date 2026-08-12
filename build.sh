@@ -58,4 +58,9 @@ if [ -f "Info.plist" ]; then
     cp Info.plist Payload/SwiftStore.app/Info.plist
 fi
 
+# Copiar los assets del ícono si existen
+if [ -d "Assets/AppIcon.appiconset" ]; then
+    cp -r Assets/AppIcon.appiconset/*.png Payload/SwiftStore.app/
+fi
+
 zip -r SwiftStore.ipa Payload
