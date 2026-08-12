@@ -1,6 +1,5 @@
 import SwiftUI
 import Combine
-import Components // Importamos el nuevo archivo de componentes
 
 // MARK: - App Entry Point
 @main

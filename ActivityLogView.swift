@@ -1,5 +1,4 @@
 import SwiftUI
-import Components // Importamos el nuevo archivo de componentes
 
 /// Una vista que muestra un registro en tiempo real de las operaciones de red del AppViewModel.
 struct ActivityLogView: View {
