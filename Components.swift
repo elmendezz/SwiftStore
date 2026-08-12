@@ -76,6 +76,18 @@ class ImageCache {
         guard fileManager.fileExists(atPath: url.path) else { return nil }
         return try? Data(contentsOf: url)
     }
+
+    func clear() {
+        do {
+            let contents = try fileManager.contentsOfDirectory(at: cacheDirectory, includingPropertiesForKeys: nil, options: [])
+            for fileURL in contents {
+                try fileManager.removeItem(at: fileURL)
+            }
+            print("ImageCache cleared successfully.")
+        } catch {
+            print("Error clearing image cache: \(error)")
+        }
+    }
 }
 
 /// Una vista que carga una imagen desde una URL, usando una caché en disco para evitar descargas repetidas.

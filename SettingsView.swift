@@ -7,6 +7,8 @@ struct SettingsView: View {
     @State private var randomImageName: String = ""
     @State private var secretTapCount = 0
     @State private var showingIconExporter = false
+    @State private var showingCacheAlert = false
+    @State private var cacheAlertMessage = ""
 
     let renders = ["3D_Render_1", "3D_Render_2", "3D_Render_3"]
     let folders = ["Documentos", "Caché"]
@@ -44,6 +46,14 @@ struct SettingsView: View {
                     .pickerStyle(SegmentedPickerStyle()).padding(.vertical, 5)
                     .onChange(of: viewModel.downloadFolder) { newValue in
                         fileManager.downloadFolder = newValue
+                    }
+                    
+                    Button(action: {
+                        ImageCache.shared.clear()
+                        self.cacheAlertMessage = "La caché de imágenes ha sido limpiada con éxito."
+                        self.showingCacheAlert = true
+                    }) {
+                        Label("Limpiar caché de imágenes", systemImage: "trash")
                     }
                 }.listRowBackground(Color.white.opacity(0.08))
 
@@ -83,5 +93,8 @@ struct SettingsView: View {
                 .onDisappear { secretTapCount = 0 } // Reset when sheet is dismissed
                 .background(Color.black.ignoresSafeArea())
         }
+        .alert("Caché Limpiada", isPresented: $showingCacheAlert) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(cacheAlertMessage) }
     }
 }

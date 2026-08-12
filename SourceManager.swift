@@ -13,6 +13,12 @@ class SourceManager: NSObject, ObservableObject, URLSessionDownloadDelegate {
     @Published var recentlyDeletedSources: [AltStoreSource] = []
     @Published var showUndoAlert: Bool = false
     @Published var showSourceExistsAlert: Bool = false
+    @Published var sourceSyncStatus: [String: SyncStatus] = [:] // URL: Status
+
+    enum SyncStatus {
+        case success(appCount: Int)
+        case failure(error: String)
+    }
     
     private var repoDownloadSession: URLSession!
     private var repoDownloadTaskIdentifier: Int?
@@ -77,6 +83,7 @@ class SourceManager: NSObject, ObservableObject, URLSessionDownloadDelegate {
         DispatchQueue.main.async {
             self.activityLog.removeAll()
             self.log("🔄 Iniciando sincronización de \(activeSources.count) fuentes activas.")
+            self.sourceSyncStatus.removeAll()
             self.isUpdatingRepos = true
             self.repoUpdateStatus = "Sincronizando \(activeSources.count) fuentes..."
         }
@@ -101,6 +108,7 @@ class SourceManager: NSObject, ObservableObject, URLSessionDownloadDelegate {
                     DispatchQueue.main.async {
                         let msg = "Error en \(source.name): \(error.localizedDescription)"
                         self.repoUpdateStatus = msg; self.log("⚠️ \(msg)")
+                        self.sourceSyncStatus[source.url] = .failure(error: error.localizedDescription)
                     }
                     return
                 }
@@ -112,12 +120,16 @@ class SourceManager: NSObject, ObservableObject, URLSessionDownloadDelegate {
                             let msg = "Procesando apps de: \(feed.name ?? source.name)"
                             self.repoUpdateStatus = msg; self.log("⚙️ \(msg)")
                         }
+                        self.sourceSyncStatus[source.url] = .success(appCount: feed.apps.count)
                         appProcessingQueue.sync {
                             allNewApps.append(contentsOf: feed.apps)
                         }
                     } catch {
-                        DispatchQueue.main.async { self.repoUpdateStatus = "JSON corrupto en: \(source.name)" }
-                        self.log("🛑 Error de decodificación en \(source.name).")
+                        DispatchQueue.main.async {
+                            let msg = "JSON corrupto en: \(source.name)"
+                            self.repoUpdateStatus = msg; self.log("🛑 \(msg)")
+                            self.sourceSyncStatus[source.url] = .failure(error: "El archivo JSON del repositorio está corrupto o no es válido.")
+                        }
                     }
                 }
             }.resume()

@@ -6,6 +6,8 @@ struct SourcesView: View {
     @State private var newRepoURL: String = ""
     @State private var editMode: EditMode = .inactive
     @State private var selection = Set<UUID>()
+    @State private var showingErrorAlert = false
+    @State private var selectedError: String?
     
     var body: some View {
         ZStack {
@@ -38,6 +40,24 @@ struct SourcesView: View {
                                 Text(source.url).font(.caption).foregroundColor(.gray).lineLimit(1)
                             }
                             Spacer()
+                            
+                            if let status = sourceManager.sourceSyncStatus[source.url] {
+                                switch status {
+                                case .success(let count):
+                                    NavigationLink(destination: SourceDetailView(source: source, appCount: count)) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.green)
+                                    }.buttonStyle(PlainButtonStyle())
+                                case .failure(let error):
+                                    Button(action: {
+                                        selectedError = error
+                                        showingErrorAlert = true
+                                    }) {
+                                        Image(systemName: "info.circle.fill")
+                                            .foregroundColor(.red)
+                                    }
+                                }
+                            }
                             
                             if editMode == .inactive {
                                 Toggle("", isOn: $source.isActive)
@@ -104,5 +124,56 @@ struct SourcesView: View {
         } message: {
             Text("La fuente que intentas añadir ya se encuentra en tu lista.")
         }
+        .alert("Error de Sincronización", isPresented: $showingErrorAlert, presenting: selectedError) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { error in
+            Text(error)
+        }
+    }
+}
+
+// MARK: - Source Detail View
+struct SourceDetailView: View {
+    let source: AltStoreSource
+    let appCount: Int
+    
+    var body: some View {
+        ZStack {
+            BlobBackgroundView()
+            
+            ScrollView {
+                VStack(spacing: 20) {
+                    LiquidGlassCard {
+                        VStack(spacing: 15) {
+                            AsyncImage(url: URL(string: source.iconURL ?? "")) { phase in
+                                if let image = phase.image { image.resizable().aspectRatio(contentMode: .fill) }
+                                else { Image(systemName: "server.rack").font(.largeTitle).foregroundColor(.gray) }
+                            }
+                            .frame(width: 80, height: 80)
+                            .cornerRadius(16)
+                            
+                            Text(source.name)
+                                .font(.largeTitle.bold())
+                                .foregroundColor(.white)
+                                .multilineTextAlignment(.center)
+                            
+                            Text(source.url)
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                    }.padding(.top)
+                    
+                    VStack {
+                        Text("Número de Apps")
+                            .font(.headline)
+                            .foregroundColor(.cyan)
+                        Text("\(appCount)")
+                            .font(.system(size: 48, weight: .bold, design: .rounded))
+                    }.foregroundColor(.white)
+                }.padding()
+            }
+        }
+        .navigationTitle("Detalles de la Fuente")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
