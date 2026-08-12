@@ -138,6 +138,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     @Published var isUpdatingRepos: Bool = false
     @Published var repoUpdateStatus: String = ""
     @Published var repoDownloadProgress: Double = 0.0
+    @Published var activityLog: [String] = []
     
     // Cola de Descargas
     @Published var downloadProgress: [String: Double] = [:]
@@ -197,12 +198,16 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             finishUpdatingRepos(message: "Error: La URL no parece ser válida.", delay: 3.5)
             return
         }
+        
         DispatchQueue.main.async {
+            self.activityLog.removeAll() // Limpiar el registro para la nueva operación.
+            self.log("▶️ Iniciando adición de fuente: \(url)")
             self.isUpdatingRepos = true
             self.repoUpdateStatus = "Descargando JSON del nuevo repositorio..."
             self.repoDownloadProgress = 0.01 // Iniciar progreso visual para mostrar la barra.
         }
         
+        log("⬇️ Creando tarea de descarga con timeout de recurso de 10s.")
         // Guardamos la URL para usarla en los métodos del delegado de URLSession.
         self.repoDownloadURL = url
         let task = repoDownloadSession.downloadTask(with: validURL)
@@ -218,6 +223,8 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         }
         
         DispatchQueue.main.async {
+            self.activityLog.removeAll()
+            self.log("🔄 Iniciando sincronización de \(activeSources.count) fuentes activas.")
             self.isUpdatingRepos = true
             self.repoUpdateStatus = "Sincronizando \(activeSources.count) fuentes..."
         }
@@ -241,7 +248,10 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
                 guard let self = self else { return }
                 
                 if let error = error {
-                    DispatchQueue.main.async { self.repoUpdateStatus = "Error en \(source.name): \(error.localizedDescription)" }
+                    DispatchQueue.main.async {
+                        let msg = "Error en \(source.name): \(error.localizedDescription)"
+                        self.repoUpdateStatus = msg; self.log("⚠️ \(msg)")
+                    }
                     return
                 }
                 
@@ -250,7 +260,8 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
                         // 1. Decodificar en el hilo de URLSession (background)
                         let feed = try JSONDecoder().decode(AltStoreFeed.self, from: data)
                         DispatchQueue.main.async {
-                            self.repoUpdateStatus = "Procesando apps de: \(feed.name ?? source.name)"
+                            let msg = "Procesando apps de: \(feed.name ?? source.name)"
+                            self.repoUpdateStatus = msg; self.log("⚙️ \(msg)")
                         }
                         // 2. Procesar y acumular en un hilo dedicado para no bloquear la red ni la UI
                         appProcessingQueue.sync {
@@ -258,6 +269,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
                         }
                     } catch {
                         DispatchQueue.main.async { self.repoUpdateStatus = "JSON corrupto en: \(source.name)" }
+                        self.log("🛑 Error de decodificación en \(source.name).")
                     }
                 }
             }.resume()
@@ -267,7 +279,8 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             // 3. Una vez todas las fuentes han sido procesadas, actualiza la UI una sola vez.
             let uniqueApps = Array(Set(allNewApps))
             self.apps = uniqueApps.sorted { $0.name < $1.name }
-            self.finishUpdatingRepos(message: "Sincronización Completada")
+            let msg = "Sincronización Completada"
+            self.log("✅ \(msg): \(uniqueApps.count) apps únicas cargadas."); self.finishUpdatingRepos(message: msg)
         }
     }
     
@@ -286,11 +299,13 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             } else {
                 errorMessage = "Error inesperado: \(error.localizedDescription)"
             }
+            log("🛑 \(errorMessage)")
             finishUpdatingRepos(message: errorMessage, delay: 3.5)
             return
         }
         
         guard let data = data else {
+            log("🛑 Error: No se recibió información del servidor (data es nulo).")
             finishUpdatingRepos(message: "Error: No se recibió información del servidor.", delay: 3.5)
             return
         }
@@ -299,15 +314,31 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             let feed = try JSONDecoder().decode(AltStoreFeed.self, from: data)
             let sourceName = feed.name ?? "Repositorio Nuevo"
             let newSource = AltStoreSource(name: sourceName, url: url, iconURL: feed.iconURL, isActive: true)
+            log("✅ Decodificación exitosa: \(feed.apps.count) apps encontradas en '\(sourceName)'.")
 
             DispatchQueue.main.async {
                 self.repoUpdateStatus = "Instalando Repo: \(sourceName)"
                 if self.sources.contains(where: { $0.url == url }) {
-                    self.finishUpdatingRepos(message: "Error: Este repositorio ya existe.")
+                    let msg = "Error: Este repositorio ya existe."
+                    self.log("⚠️ \(msg)"); self.finishUpdatingRepos(message: msg)
                     return
                 }
+                
+                // LÓGICA MEJORADA: Añadir fuente y apps sin llamar a fetchApps()
                 self.sources.append(newSource)
-                self.fetchApps()
+                log("✍️ Fuente '\(sourceName)' añadida a la lista.")
+                
+                let existingAppIDs = Set(self.apps.map { $0.bundleIdentifier })
+                let newAppsToAdd = feed.apps.filter { !existingAppIDs.contains($0.bundleIdentifier) }
+                
+                if !newAppsToAdd.isEmpty {
+                    self.apps.append(contentsOf: newAppsToAdd)
+                    self.apps.sort { $0.name < $1.name } // Mantener orden
+                    log("📲 \(newAppsToAdd.count) nuevas apps añadidas a la tienda.")
+                }
+                
+                let finalMessage = "Repositorio '\(sourceName)' añadido."
+                log("🎉 \(finalMessage)"); self.finishUpdatingRepos(message: finalMessage)
             }
         } catch let decodingError as DecodingError {
             var errorMessage = "Error de formato JSON: "
@@ -318,9 +349,11 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             case .dataCorrupted(let context): errorMessage += "El JSON está corrupto. \(context.debugDescription)"
             @unknown default: errorMessage += "Error desconocido al procesar el JSON."
             }
+            log("🛑 \(errorMessage)")
             finishUpdatingRepos(message: errorMessage, delay: 5)
         } catch {
-            finishUpdatingRepos(message: "Ocurrió un error inesperado: \(error.localizedDescription)", delay: 3.5)
+            let msg = "Ocurrió un error inesperado: \(error.localizedDescription)"
+            log("🛑 \(msg)"); finishUpdatingRepos(message: msg, delay: 3.5)
         }
     }
     
@@ -331,6 +364,14 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
                 self.isUpdatingRepos = false
                 self.repoDownloadProgress = 0.0 // Limpiar la barra de progreso
             }
+        }
+    }
+    
+    private func log(_ message: String) {
+        let timestamp = Date().formatted(date: .omitted, time: .standard)
+        let logMessage = "[\(timestamp)] \(message)"
+        DispatchQueue.main.async {
+            self.activityLog.append(logMessage)
         }
     }
     
@@ -428,6 +469,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         // Comprobar si es la descarga de un nuevo repositorio.
         if downloadTask.taskIdentifier == repoDownloadTaskIdentifier {
+            log("✅ Tarea \(downloadTask.taskIdentifier) finalizada. Archivo temporal en: \(location.path)")
             guard let repoURL = self.repoDownloadURL, let data = try? Data(contentsOf: location) else {
                 processDownloadedRepo(url: self.repoDownloadURL ?? "", data: nil, error: nil)
                 return
@@ -455,6 +497,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         // Comprobar si es un error en la descarga de un nuevo repositorio.
         if let error = error, task.taskIdentifier == repoDownloadTaskIdentifier {
+            log("‼️ Tarea \(task.taskIdentifier) completada con error: \(error.localizedDescription)")
             processDownloadedRepo(url: self.repoDownloadURL ?? "", data: nil, error: error)
             
             // Limpieza
@@ -521,6 +564,7 @@ struct BlobBackgroundView: View {
 struct MainTabView: View {
     @StateObject private var viewModel = AppViewModel()
     @State private var showingShakeUndo = false
+    @State private var showingLogView = false
     
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -566,11 +610,18 @@ struct MainTabView: View {
             }
             
             if viewModel.isUpdatingRepos {
-                LiveStatusOverlay(status: viewModel.repoUpdateStatus, progress: viewModel.repoDownloadProgress)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(100)
-                    .padding(.bottom, 60)
+                Button(action: { showingLogView = true }) {
+                    LiveStatusOverlay(status: viewModel.repoUpdateStatus, progress: viewModel.repoDownloadProgress)
+                }
+                .buttonStyle(PlainButtonStyle()) // Evita que el botón altere el estilo del overlay.
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(100)
+                .padding(.bottom, 60)
             }
+        }
+        .sheet(isPresented: $showingLogView) {
+            ActivityLogView()
+                .environmentObject(viewModel)
         }
     }
 }
