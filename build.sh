@@ -51,6 +51,7 @@ mkdir -p Payload/SwiftStore.app
 swiftc $(find . -name "*.swift") -parse-as-library \
        -sdk $(xcrun --sdk iphoneos --show-sdk-path) \
        -target arm64-apple-ios15.0 \
+       -Xcc -isysroot -Xcc "$(xcrun --sdk iphoneos --show-sdk-path)" \
        -o Payload/SwiftStore.app/SwiftStore
 
 if [ -f "Info.plist" ]; then

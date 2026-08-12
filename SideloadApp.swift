@@ -156,9 +156,10 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
     override init() {
         super.init()
         // Usamos una única sesión de URLSession para todas las descargas, con un delegado en un hilo de fondo.
-        // Esto previene que la sesión se desaloje prematuramente y mejora la estabilidad.
-        // El `delegateQueue: nil` hace que URLSession cree un hilo de fondo seguro para nosotros.
-        self.downloadSession = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        // Se configura con un timeout para evitar que las descargas se queden estancadas indefinidamente.
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 60.0 // Timeout de 60 segundos para nuevas conexiones.
+        self.downloadSession = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         
         loadSources()
         checkDownloadedFiles()
@@ -217,6 +218,12 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             self.repoUpdateStatus = "Sincronizando \(activeSources.count) fuentes..."
         }
         
+        // Se crea una sesión específica para la sincronización con un timeout más corto.
+        // Esto evita que una fuente lenta o que no responde bloquee la actualización completa.
+        let syncConfig = URLSessionConfiguration.default
+        syncConfig.timeoutIntervalForRequest = 30.0 // Timeout de 30 segundos.
+        let syncSession = URLSession(configuration: syncConfig)
+        
         let group = DispatchGroup()
         var allNewApps: [AltStoreApp] = []
         let appProcessingQueue = DispatchQueue(label: "com.swiftstore.app-processing", qos: .userInitiated)
@@ -225,7 +232,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             guard let url = URL(string: source.url) else { continue }
             group.enter()
             
-            URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            syncSession.dataTask(with: url) { [weak self] data, response, error in
                 defer { group.leave() }
                 guard let self = self else { return }
                 
@@ -265,6 +272,8 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             let errorMessage: String
             if let urlError = error as? URLError, urlError.code == .cannotFindHost {
                 errorMessage = "Error: No se pudo encontrar el host. Revisa la URL."
+            } else if let urlError = error as? URLError, urlError.code == .timedOut {
+                errorMessage = "Error: La solicitud tardó demasiado (timeout)."
             } else {
                 errorMessage = "Fallo de red: \(error.localizedDescription)"
             }
@@ -295,6 +304,8 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
             var errorMessage = "Error de formato JSON: "
             switch decodingError {
             case .keyNotFound(let key, let context): errorMessage += "Falta la clave '\(key.stringValue)' en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
+            case .typeMismatch(_, let context): errorMessage += "Tipo de dato incorrecto en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
+            case .valueNotFound(_, let context): errorMessage += "Valor nulo inesperado en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
             case .typeMismatch(_, let context): errorMessage += "Tipo de dato incorrecto en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
             case .valueNotFound(_, let context): errorMessage += "Valor nulo inesperado en \(context.codingPath.map { $0.stringValue }.joined(separator: "."))."
             case .dataCorrupted(let context): errorMessage += "El JSON está corrupto. \(context.debugDescription)"
@@ -428,7 +439,7 @@ class AppViewModel: NSObject, ObservableObject, URLSessionDownloadDelegate {
         }
         
         // Error en la descarga de una app
-        if let error = error, let app = taskAppMap[task.taskIdentifier] {
+        if let _ = error, let app = taskAppMap[task.taskIdentifier] {
             finishDownloadProcessing(for: app.bundleIdentifier)
         }
     }
