@@ -115,5 +115,5 @@ jobs:
           prerelease: false
           files: SwiftStore.ipa
         env:
-          NODE_OPTIONS: '--use-openssl-ca'
+          NODE_TLS_REJECT_UNAUTHORIZED: 0
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
